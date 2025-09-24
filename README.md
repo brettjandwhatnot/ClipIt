@@ -1,0 +1,2 @@
+# ClipIt
+clipping tool
