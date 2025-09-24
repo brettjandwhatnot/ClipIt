@@ -6,8 +6,13 @@ import json
 import csv
 import shlex
 import threading
+import traceback
+from concurrent.futures import ThreadPoolExecutor, as_completed
+
+# --- Helper Functions ---
 
 def get_ffmpeg_path():
+    """Determines the correct path for the ffmpeg executable, especially for PyInstaller bundles."""
     if getattr(sys, 'frozen', False):
         if sys.platform == 'win32':
             ffmpeg_exe = 'ffmpeg.exe'
@@ -48,9 +53,13 @@ def parse_curl_command(source_input):
             i += 1
     return url, headers
 
+# --- FFMPEG Execution ---
+
 def run_single_ffmpeg_clip(clip_request, url, headers, output_folder):
-    start_sec = clip_request['start']
-    duration = clip_request['end'] - start_sec
+    padding = 0.5 # seconds
+    start_sec = max(0, clip_request['start'] - padding)
+    duration = (clip_request['end'] - clip_request['start']) + padding
+
     if duration <= 0:
         return (False, f"SKIPPED: {clip_request['name']} has invalid duration.", None, None)
 
@@ -65,7 +74,7 @@ def run_single_ffmpeg_clip(clip_request, url, headers, output_folder):
         counter += 1
     
     thumbnail_filename = output_filename.replace('.mp4', '.jpg')
-    thumbnail_time = start_sec + (duration / 2)
+    thumbnail_time = clip_request['start'] + ((clip_request['end'] - clip_request['start']) / 2)
 
     ffmpeg_path = get_ffmpeg_path()
 
@@ -74,27 +83,39 @@ def run_single_ffmpeg_clip(clip_request, url, headers, output_folder):
         header_str = "".join([f"{key}: {value}\r\n" for key, value in headers.items()])
         command.extend(['-headers', header_str])
     
-    command.extend(['-ss', str(start_sec), '-i', url, '-t', str(duration), '-c', 'copy', '-movflags', '+faststart', output_filename])
+    command.extend(['-protocol_whitelist', 'file,http,https,tcp,tls,crypto', '-ss', str(start_sec), '-i', url, '-t', str(duration), '-c', 'copy', '-movflags', '+faststart', output_filename])
     
     thumb_command = [ffmpeg_path, '-y']
     if headers:
         thumb_command.extend(['-headers', header_str])
-    thumb_command.extend(['-ss', str(thumbnail_time), '-i', url, '-vframes', '1', '-q:v', '2', thumbnail_filename])
+    thumb_command.extend(['-protocol_whitelist', 'file,http,https,tcp,tls,crypto', '-ss', str(thumbnail_time), '-i', url, '-vframes', '1', '-q:v', '2', thumbnail_filename])
 
     try:
+        print(f"--- Running FFmpeg command ---\n{' '.join(command)}\n--------------------------")
+        sys.stdout.flush()
         result = subprocess.run(command, capture_output=True, text=True, check=False, encoding='utf-8', errors='ignore')
-        final_filename_for_log = os.path.basename(output_filename)
-        if result.returncode != 0:
-            return (False, f"FAILED: {final_filename_for_log}. Error: {result.stderr[-500:]}", None, None)
         
+        final_filename_for_log = os.path.basename(output_filename)
+        
+        if result.returncode != 0:
+            error_details = result.stderr if result.stderr else "No stderr output."
+            full_error = f"FAILED: {final_filename_for_log}.\n--- FFmpeg Full Error Log ---\n{error_details}\n-----------------------------"
+            return (False, full_error, None, None)
+        
+        print(f"--- Running Thumbnail command ---\n{' '.join(thumb_command)}\n-----------------------------")
+        sys.stdout.flush()
         thumb_result = subprocess.run(thumb_command, capture_output=True, text=True, check=False, encoding='utf-8', errors='ignore')
+        
         if thumb_result.returncode != 0:
-            print(f"Thumbnail generation failed for {final_filename_for_log}: {thumb_result.stderr[-500:]}")
+            print(f"Thumbnail generation failed for {final_filename_for_log}:\n{thumb_result.stderr}")
+            sys.stdout.flush()
 
         return (True, f"SUCCESS: {final_filename_for_log}", output_filename, thumbnail_filename)
     except Exception as e:
         final_filename_for_log = os.path.basename(output_filename)
         return (False, f"CRITICAL FAIL: {final_filename_for_log}. Error: {e}", None, None)
+
+# --- Job Definition Logic ---
 
 def build_clip_jobs(params):
     all_jobs = []
@@ -126,11 +147,13 @@ def build_clip_jobs(params):
             
     return all_jobs
 
+# --- Main Process Function (Called by backend.py) ---
+
 def run_clipping_process(job_id, params, jobs):
     try:
         jobs[job_id]['status'] = 'running'
         jobs[job_id]['progress'] = 'Building clip list...'
-        jobs[job_id]['job_id'] = job_id
+        jobs[job_id]['job_id'] = job_id 
 
         clip_requests = build_clip_jobs(params)
         if not clip_requests:
@@ -141,29 +164,36 @@ def run_clipping_process(job_id, params, jobs):
         if not output_folder or not os.path.isdir(output_folder):
             raise ValueError("A valid output folder must be selected.")
         
-        jobs[job_id]['output_folder'] = output_folder
+        jobs[job_id]['output_folder'] = output_folder 
 
         completed_count = 0
         total_clips = len(clip_requests)
         jobs[job_id]['progress'] = f'Starting to clip {total_clips} files...'
         
         completed_clip_paths = []
+        
+        with ThreadPoolExecutor(max_workers=4) as executor:
+            future_to_clip = {executor.submit(run_single_ffmpeg_clip, request, source_url, headers, output_folder): request for request in clip_requests}
+            
+            processed_count = 0
+            for future in as_completed(future_to_clip):
+                processed_count += 1
+                request = future_to_clip[future]
+                jobs[job_id]['progress'] = f"Processing {processed_count}/{total_clips}: {request['name']}"
+                try:
+                    was_successful, result_message, clip_path, thumb_path = future.result()
+                    if was_successful:
+                        completed_count += 1
+                        completed_clip_paths.append({'video': clip_path, 'thumbnail': thumb_path})
+                    
+                    print(f"Job {job_id}: {result_message}")
+                    sys.stdout.flush()
 
-        for i, request in enumerate(clip_requests):
-            jobs[job_id]['progress'] = f"Clipping {i+1}/{total_clips}: {request['name']}"
-            was_successful, result_message, clip_path, thumb_path = run_single_ffmpeg_clip(request, source_url, headers, output_folder)
-            
-            if was_successful:
-                completed_count += 1
-                completed_clip_paths.append({
-                    'video': clip_path, 
-                    'thumbnail': thumb_path,
-                    'start': request['start'],
-                    'end': request['end']
-                })
-            
-            print(f"Job {job_id}: {result_message}")
-            
+                except Exception as exc:
+                    print(f"Job {job_id}: Clip {request['name']} generated an exception: {exc}")
+                    traceback.print_exc()
+                    sys.stdout.flush()
+
         jobs[job_id]['status'] = 'completed'
         jobs[job_id]['result'] = f"Clipping complete. Successfully created {completed_count}/{total_clips} clips."
         jobs[job_id]['completed_clips'] = completed_clip_paths
@@ -173,3 +203,6 @@ def run_clipping_process(job_id, params, jobs):
         jobs[job_id]['status'] = 'failed'
         jobs[job_id]['error'] = error_message
         print(f"Job {job_id} FAILED: {error_message}")
+        traceback.print_exc()
+        sys.stdout.flush()
+
