@@ -1,0 +1,1707 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Clip It! - Clipper</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/lottie-web/5.12.2/lottie.min.js"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        body { font-family: 'Inter', sans-serif; background-color: #111111; color: #FFFFF4; }
+        .panel-bg { background-color: #282527; } .accent-bg { background-color: #fffff1; }
+        .accent-text { color: #FFE414; } .text-dark { color: #000000; }
+        .text-main-dark { color: #282527; }
+        .input-bg { background-color: #383537; } .separator { border-color: #4A4A4A; }
+        ::-webkit-scrollbar { width: 8px; } ::webkit-scrollbar-track { background: #282527; }
+        ::-webkit-scrollbar-thumb { background: #555; border-radius: 4px; } ::webkit-scrollbar-thumb:hover { background: #777; }
+        .icon-btn { transition: transform 0.1s ease-in-out; }
+        .icon-btn:hover { transform: scale(1.1); }
+        .icon-btn:active { transform: scale(0.95); }
+        .interactive-item:hover { background-color: #4a4a4a; }
+        .transcript-context { background-color: #2a2a2a; border-left: 3px solid #FFE414; }
+        .transcript-line:hover { background-color: #444; }
+        .timecode-start { background-color: #3a593a; color: #90ee90; }
+        .timecode-end { background-color: #593a3a; color: #ff9090; }
+        .timecode-range { background-color: #2e442e; }
+        .clip-item-actions svg { cursor: pointer; }
+        .clip-item-actions svg:hover { color: #FFE414; }
+        .clip-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(80px, 1fr)); gap: 0.75rem; padding-top: 0.75rem; }
+        .clip-thumbnail-item { display: flex; flex-direction: column; align-items: center; text-align: center; cursor: pointer; border-radius: 4px; padding: 4px; transition: background-color 0.2s; position: relative; border: 2px solid transparent; }
+        .clip-thumbnail-item:hover { background-color: #4a4a4a; }
+        .clip-thumbnail-item.selected { border-color: #FFE414; background-color: #4a4a4a; }
+        .clip-thumbnail-item img { width: 100%; height: 50px; object-fit: cover; border-radius: 2px; margin-bottom: 4px; background-color: #212121; }
+        .clip-thumbnail-item span { font-size: 0.65rem; line-height: 1.2; word-break: break-all; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+        .folder { margin-bottom: 0.5rem; }
+        .folder-header { padding: 0.25rem 0.5rem; background-color: #2a2a2a; cursor: pointer; border-radius: 4px; display: flex; align-items: center; transition: background-color 0.2s; }
+        .folder-header:hover { background-color: #4a4a4a; }
+        .folder-header svg { width: 1rem; height: 1rem; margin-right: 0.5rem; flex-shrink: 0; }
+        .folder-content { padding-left: 1.5rem; max-height: 0; overflow: hidden; transition: max-height 0.3s ease-in-out; }
+        .folder.open .folder-content { max-height: 1000px; }
+        .drag-over .folder-header, .drag-over.unassigned-drop-zone { background-color: #FFE414; color: #000; }
+        .unassigned-drop-zone { padding-top: 0.5rem; border: 2px dashed transparent; border-radius: 4px; min-height: 100px; }
+        .delete-btn { display: none; position: absolute; top: -4px; right: -4px; background-color: #4a4a4a; color: white; border-radius: 50%; width: 1rem; height: 1rem; font-size: 0.7rem; line-height: 1rem; text-align: center; cursor: pointer; z-index: 10; }
+        .clip-thumbnail-item:hover .delete-btn { display: block; }
+        .folder-header .delete-folder-btn { margin-left: auto; color: #9ca3af; padding: 0 0.25rem; }
+        .folder-header .delete-folder-btn:hover { color: #ef4444; }
+        #timeline-container { position: relative; height: 40px; background-color: #383537; border-radius: 4px; cursor: pointer; overflow: hidden; }
+        #timeline { position: absolute; top: 0; left: 0; height: 100%; width: 100%; pointer-events: none; }
+        .tick { position: absolute; bottom: 0; width: 1px; background-color: #777; }
+        .tick.major { height: 15px; }
+        .tick-label { position: absolute; bottom: 16px; font-size: 10px; color: #aaa; transform: translateX(-50%); }
+        #playhead { position: absolute; top: 0; left: 0; width: 2px; height: 100%; background-color: #FFE414; pointer-events: none; }
+        .timeline-marker { position: absolute; top: 0; width: 10px; height: 100%; cursor: ew-resize; }
+        .timeline-marker-start { background-color: rgba(144, 238, 144, 0.5); border-left: 2px solid lightgreen; }
+        .timeline-marker-end { background-color: rgba(255, 144, 144, 0.5); border-right: 2px solid lightcoral; }
+        .timeline-range { position: absolute; top: 0; height: 100%; background-color: rgba(144, 238, 144, 0.2); pointer-events: none; }
+        #zoom-bar-container { height: 16px; cursor: pointer; padding: 4px 0; }
+        #zoom-track { background-color: #2a2a2a; }
+        #zoom-window { background-color: #888; opacity: 0.7; border-radius: 4px; }
+        .zoom-handle { background-color: #ddd; border: 1px solid #aaa; }
+        #resizer { flex-shrink: 0; cursor: row-resize; background-color: #4a4a4a; height: 8px; border-top: 1px solid #5a5a5a; border-bottom: 1px solid #5a5a5a; }
+        #resizer:hover { background-color: #FFE414; }
+        .main-nav-btn { padding: 0.75rem 1.5rem; font-weight: 600; color: #a0a0a0; border-bottom: 3px solid transparent; transition: all 0.2s ease-in-out; }
+        .main-nav-btn:hover { color: #ffffff; }
+        .main-nav-btn.active { color: #FFE414; border-bottom-color: #FFE414; }
+    </style>
+</head>
+<body class="overflow-hidden">
+    <div class="h-screen w-screen bg-black flex flex-col">
+        <!-- Main Navigation -->
+        <nav class="flex-shrink-0 bg-[#1a1a1a] flex justify-center border-b border-[#4A4A4A]">
+            <button id="clipit-nav-btn" class="main-nav-btn active">ClipIt</button>
+            <button id="editor-nav-btn" class="main-nav-btn">Editor</button>
+        </nav>
+
+        <!-- Page Content: ClipIt -->
+        <main class="flex-grow overflow-hidden">
+            <div class="flex h-full">
+                <!-- Left Panel -->
+                <div class="w-1/3 flex flex-col p-4 pr-0 space-y-4">
+                    <!-- Top Controls Panel -->
+                    <div class="panel-bg rounded-lg p-4 flex flex-col">
+                        <button id="open-inputs-modal-btn" class="w-full input-bg text-white py-2 px-4 rounded-md mb-4 text-base font-semibold transition-all duration-200 hover:bg-[#ffe414] hover:text-main-dark hover:scale-105">Setup Inputs</button>
+                        <div class="border-t separator my-4"></div>
+                        <div>
+                            <label class="text-lg font-semibold block mb-2">Selected Clips</label>
+                            <div id="selected-clips-list" class="input-bg p-2 rounded-md min-h-[150px] text-sm space-y-1">
+                                <p class="text-gray-500 text-center p-4">Select products to get started.</p>
+                            </div>
+                        </div>
+                        <div class="border-t separator my-4"></div>
+                        <div id="clip-it-btn-container" class="transition-transform duration-200 hover:scale-110" style="cursor: pointer; width: 250px; height: 100px; margin: 0 auto; position: relative;">
+                            <div id="clip-it-anim-click" style="position: absolute; top: 0; left: 0; width: 100%; height: 100%;"></div>
+                            <div id="clip-it-anim-loop" style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; display: none;"></div>
+                        </div>
+                        <div id="terminal-container" class="hidden mt-4">
+                            <div id="terminal" class="input-bg p-2 rounded-md flex-grow h-24 overflow-y-auto text-xs font-mono whitespace-pre-wrap"></div>
+                        </div>
+                    </div>
+
+                    <!-- Completed Clips Gallery -->
+                    <div id="completed-clips-container" class="panel-bg rounded-lg p-4 flex-grow flex flex-col overflow-hidden">
+                        <div class="flex justify-between items-center mb-2 flex-shrink-0">
+                            <label class="text-lg font-semibold">Completed Clips</label>
+                            <button id="add-folder-btn" class="text-2xl font-bold hover:text-yellow-400">+</button>
+                        </div>
+                        <div id="completed-clips-list" class="flex-grow overflow-y-auto">
+                            <p class="text-gray-500 text-center p-4">Your exported clips will appear here.</p>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- Middle Panel: Video Player -->
+                <div class="w-1/3 flex flex-col p-4 space-y-4 pr-0">
+                    <div id="video-container" class="panel-bg rounded-lg flex-grow relative bg-black flex items-center justify-center overflow-hidden"><video id="video-player" class="absolute w-full h-full object-contain" style="display: none;"></video><div id="video-placeholder" class="text-gray-400 text-lg p-4 text-center">Video will load here</div></div>
+                    <div class="panel-bg rounded-lg p-4 space-y-2">
+                        <div id="timeline-container" class="flex-grow">
+                            <div id="timeline"></div>
+                            <div id="playhead"></div>
+                        </div>
+                        <div id="zoom-bar-container" class="relative">
+                            <div id="zoom-track" class="absolute w-full h-1 top-1/2 -translate-y-1/2 rounded-full"></div>
+                            <div id="zoom-window" class="absolute h-full cursor-move">
+                                <div id="zoom-handle-start" class="zoom-handle absolute w-4 h-4 rounded-full -left-2 top-1/2 -translate-y-1/2 cursor-ew-resize"></div>
+                                <div id="zoom-handle-end" class="zoom-handle absolute w-4 h-4 rounded-full -right-2 top-1/2 -translate-y-1/2 cursor-ew-resize"></div>
+                            </div>
+                        </div>
+
+                        <div class="flex justify-center items-center space-x-4">
+                            <button id="ai-analyze-btn" class="icon-btn text-white hover:text-yellow-300" title="Analyze Current Frame with AI">
+                                <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z"></path><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 13a3 3 0 11-6 0 3 3 0 016 0z"></path></svg>
+                            </button>
+                            <div id="timecode-container" class="text-sm font-mono whitespace-nowrap text-center block cursor-pointer">
+                                <span id="timecode">00:00:00 / 00:00:00</span>
+                            </div>
+                            <button id="add-custom-clip-btn" class="icon-btn text-white hover:text-yellow-300">
+                                <svg class="w-6 h-6" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm1-11a1 1 0 10-2 0v2H7a1 1 0 100 2h2v2a1 1 0 102 0v-2h2a1 1 0 100-2h-2V7z" clip-rule="evenodd"></path></svg>
+                            </button>
+                        </div>
+                        
+                        <div class="relative">
+                            <div class="flex items-center justify-center space-x-4">
+                                <button id="set-custom-start-btn" class="icon-btn text-white hover:text-yellow-300 font-mono text-lg">[</button>
+                                <button id="rewind-btn" class="icon-btn text-white hover:text-yellow-300"><svg class="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 19l-7-7 7-7m8 14l-7-7 7-7"></path></svg></button>
+                                <button id="play-pause-btn" class="icon-btn text-white hover:text-yellow-300"><svg id="play-icon" class="w-12 h-12" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM9.555 7.168A1 1 0 008 8v4a1 1 0 001.555.832l3-2a1 1 0 000-1.664l-3-2z" clip-rule="evenodd"></path></svg><svg id="pause-icon" class="w-12 h-12 hidden" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zM7 8a1 1 0 012 0v4a1 1 0 11-2 0V8zm5-1a1 1 0 00-1 1v4a1 1 0 102 0V8a1 1 0 00-1-1z" clip-rule="evenodd"></path></svg></button>
+                                <button id="forward-btn" class="icon-btn text-white hover:text-yellow-300"><svg class="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 5l7 7-7 7M5 5l7 7-7 7"></path></svg></button>
+                                <button id="set-custom-end-btn" class="icon-btn text-white hover:text-yellow-300 font-mono text-lg">]</button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- Right Panel: Resizable Modules -->
+                <div class="w-1/3 flex flex-col p-4">
+                    <!-- Products Module -->
+                    <div id="products-module" class="panel-bg rounded-lg p-4 flex flex-col overflow-hidden" style="flex-basis: 66%;">
+                        <div class="flex items-center space-x-2 mb-2 relative flex-shrink-0">
+                            <input id="interactive-search" type="text" placeholder="Search products..." class="input-bg w-full p-2 rounded-md text-sm">
+                            <button id="ai-search-btn" class="p-2 input-bg text-white rounded-md flex-shrink-0 transition-all duration-200 hover:bg-[#ffe414] hover:text-main-dark hover:scale-105" title="Find Moments with AI">
+                                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z"></path></svg>
+                            </button>
+                            <button id="filter-btn" class="p-2 input-bg text-white rounded-md flex-shrink-0 transition-all duration-200 hover:bg-[#ffe414] hover:text-main-dark hover:scale-105">
+                                <svg class="w-5 h-5" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M3 3a1 1 0 011-1h12a1 1 0 011 1v3a1 1 0 01-.293.707L12 11.414V15a1 1 0 01-.293.707l-2 2A1 1 0 018 17v-5.586L3.293 6.707A1 1 0 013 6V3z" clip-rule="evenodd"></path></svg>
+                            </button>
+                            <div id="filter-menu" class="hidden absolute top-full right-0 mt-2 w-72 panel-bg rounded-lg p-4 z-10 shadow-lg border border-[#4A4A4A]">
+                                <h4 class="font-semibold mb-2">Sort By</h4>
+                                <div class="space-y-1 text-sm">
+                                    <label class="flex items-center"><input type="radio" name="sort" value="default" class="mr-2 accent-yellow-400" checked>Default (Time)</label>
+                                    <label class="flex items-center"><input type="radio" name="sort" value="price_high_low" class="mr-2 accent-yellow-400">Price: High to Low</label>
+                                    <label class="flex items-center"><input type="radio" name="sort" value="price_low_high" class="mr-2 accent-yellow-400">Price: Low to High</label>
+                                </div>
+                                <div class="border-t separator my-3"></div>
+                                <h4 class="font-semibold mb-2">Filter By Price</h4>
+                                <div class="flex items-center space-x-2 text-sm">
+                                    <input type="number" id="filter-min-price" placeholder="Min $" class="input-bg w-full p-1 rounded-md">
+                                    <span>-</span>
+                                    <input type="number" id="filter-max-price" placeholder="Max $" class="input-bg w-full p-1 rounded-md">
+                                </div>
+                                <div class="border-t separator my-3"></div>
+                                <button id="clear-filters-btn" class="w-full text-center text-sm input-bg hover:bg-[#4a4a4a] p-2 rounded-md">Clear All Filters</button>
+                            </div>
+                        </div>
+                        <div id="interactive-list" class="input-bg mt-2 p-1 rounded-md flex-grow overflow-y-auto">
+                            <div class="p-4 text-center text-gray-500 text-sm">Load a sales CSV to see products.</div>
+                        </div>
+                    </div>
+
+                    <!-- Resizer Handle -->
+                    <div id="resizer" class="my-2"></div>
+
+                    <!-- AI Assistant Module -->
+                    <div id="ai-chat-module" class="panel-bg rounded-lg p-4 flex flex-col overflow-hidden" style="flex-basis: 33%;">
+                        <h3 class="text-lg font-semibold accent-text mb-2 flex-shrink-0">AI Assistant</h3>
+                        <div id="ai-chat-messages" class="flex-grow overflow-y-auto input-bg p-2 rounded-md mb-2 space-y-2 text-sm">
+                            <p class="text-gray-500 text-center p-2">Click the camera icon on a video frame to begin analysis.</p>
+                        </div>
+                        <div class="flex-shrink-0">
+                            <input id="ai-chat-input" type="text" placeholder="Ask a follow-up question..." class="input-bg w-full p-2 rounded-md text-sm">
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <!-- Inputs Modal -->
+    <div id="inputs-modal" class="hidden fixed inset-0 bg-black bg-opacity-70 flex items-center justify-center z-50">
+        <div class="panel-bg rounded-lg p-6 w-1/2 max-w-lg shadow-2xl">
+            <div class="flex justify-between items-center mb-4">
+                <h3 class="text-lg font-bold accent-text">Setup Inputs</h3>
+                <button id="close-modal-btn" class="text-2xl font-bold hover:text-yellow-400">&times;</button>
+            </div>
+            <div class="space-y-4 text-sm">
+                <div>
+                    <label class="font-medium text-gray-300">Source cURL</label>
+                    <div class="flex"><input id="source-url" type="text" placeholder="Paste URL command here" class="input-bg w-full p-2 rounded-l-md border-2 border-transparent focus:border-yellow-400 focus:outline-none"><button id="load-video-btn" class="accent-bg text-dark font-bold py-2 px-4 rounded-r-md hover:bg-yellow-300 transition-colors">Load</button></div>
+                    <p class="text-xs text-gray-400 mt-1">Note: URL commands from live streams can expire. If you see a 401 error, get a fresh command.</p>
+                </div>
+                <div>
+                    <label class="font-medium text-gray-300">Sales Data (CSV)</label>
+                    <div class="flex space-x-2"><span id="sales-data-file" class="input-bg w-full p-2 rounded-md truncate text-gray-400">No sales data loaded...</span><button id="select-sales-btn" class="bg-gray-600 py-2 px-4 rounded-md hover:bg-gray-500 whitespace-nowrap">Load</button></div>
+                </div>
+                <div>
+                    <label class="font-medium text-gray-300">Transcript (CSV)</label>
+                     <div class="flex space-x-2"><span id="transcript-file" class="input-bg w-full p-2 rounded-md truncate text-gray-400">No transcript loaded...</span><button id="select-transcript-btn" class="bg-gray-600 py-2 px-4 rounded-md hover:bg-gray-500 whitespace-nowrap">Load</button></div>
+                </div>
+                 <div>
+                    <label class="font-medium text-gray-300">Output Folder</label>
+                    <div class="flex space-x-2"><span id="output-folder-path" class="input-bg w-full p-2 rounded-md truncate text-gray-400">No folder selected...</span><button id="select-folder-btn" class="bg-gray-600 py-2 px-4 rounded-md hover:bg-gray-500">Select</button></div>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <!-- AI Prompt Modal -->
+    <div id="ai-prompt-modal" class="hidden fixed inset-0 bg-black bg-opacity-70 flex items-center justify-center z-50">
+        <div class="panel-bg rounded-lg p-6 w-1/2 max-w-lg shadow-2xl">
+            <div class="flex justify-between items-center mb-4">
+                <h3 class="text-lg font-bold accent-text">Find Moments with AI</h3>
+                <button id="close-ai-prompt-modal-btn" class="text-2xl font-bold hover:text-yellow-400">&times;</button>
+            </div>
+            <div class="space-y-4 text-sm">
+                <div>
+                    <label for="ai-prompt-input" class="font-medium text-gray-300">Describe what you're looking for</label>
+                    <textarea id="ai-prompt-input" placeholder="e.g., 'Show me the 3 most expensive items sold' or 'Find moments where the host says amazing'" class="input-bg w-full p-2 rounded-md border-2 border-transparent focus:border-yellow-400 focus:outline-none mt-1" rows="3"></textarea>
+                </div>
+                <div class="mt-4">
+                    <label class="font-medium text-gray-300">Or, search with an image (optional)</label>
+                    <div class="mt-1 flex items-center justify-center px-6 pt-5 pb-6 border-2 border-gray-600 border-dashed rounded-md cursor-pointer hover:border-yellow-400" id="image-drop-area">
+                        <div class="space-y-1 text-center" id="image-prompt-text">
+                            <svg class="mx-auto h-12 w-12 text-gray-400" stroke="currentColor" fill="none" viewBox="0 0 48 48" aria-hidden="true">
+                                <path d="M28 8H12a4 4 0 00-4 4v20m32-12v8m0 0v8a4 4 0 01-4 4H12a4 4 0 01-4-4v-4m32-4l-3.172-3.172a4 4 0 00-5.656 0L28 28M8 32l9.172-9.172a4 4 0 015.656 0L28 28m0 0l4 4m4-24h8m-4-4v8" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"></path>
+                            </svg>
+                            <div class="flex text-sm text-gray-500">
+                                <label for="ai-image-input" class="relative cursor-pointer bg-gray-700 rounded-md font-medium text-yellow-400 hover:text-yellow-300 focus-within:outline-none focus-within:ring-2 focus-within:ring-offset-2 focus-within:ring-yellow-500 px-1">
+                                    <span>Upload a file</span>
+                                    <input id="ai-image-input" name="ai-image-input" type="file" class="sr-only" accept="image/*">
+                                </label>
+                                <p class="pl-1">or drag and drop</p>
+                            </div>
+                            <p class="text-xs text-gray-500">PNG, JPG, GIF up to 10MB</p>
+                        </div>
+                        <div id="image-preview-container" class="hidden items-center space-x-4">
+                            <img id="image-preview" src="" class="h-20 w-20 object-cover rounded-md" alt="Image preview"/>
+                            <button id="remove-image-btn" class="text-red-500 hover:text-red-400 font-bold">Remove</button>
+                        </div>
+                    </div>
+                </div>
+                <button id="run-ai-search-btn" class="w-full accent-bg text-dark font-bold py-2 px-4 rounded-md hover:bg-yellow-300 transition-colors">Search</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Preview Modal -->
+    <div id="preview-modal" class="hidden fixed inset-0 bg-black bg-opacity-70 flex items-center justify-center z-50">
+        <div class="panel-bg rounded-lg p-4 w-1/3 max-w-lg max-h-[50vh] shadow-2xl relative flex items-center justify-center">
+             <button id="close-preview-modal-btn" class="absolute -top-2 -right-2 text-3xl font-bold hover:text-yellow-400 bg-gray-800 rounded-full w-8 h-8 flex items-center justify-center z-10">&times;</button>
+             <video id="preview-video" controls class="w-full h-full rounded object-contain"></video>
+        </div>
+    </div>
+    
+    <!-- Celebration Modal -->
+    <div id="celebration-container" style="display: none; position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; z-index: 100; background-color: transparent; align-items: center; justify-content: center; pointer-events: none;"></div>
+
+
+    <script>
+        // --- LOTTIE ANIMATION DATA ---
+        const clickAnimationData = {};
+        const loopAnimationData = {};
+        const celebrationAnimationData = {};
+
+
+        // --- DOM Elements ---
+        const getEl = (id) => document.getElementById(id);
+        const sourceUrlInput = getEl('source-url'), loadVideoBtn = getEl('load-video-btn'), selectFolderBtn = getEl('select-folder-btn'),
+              outputFolderPath = getEl('output-folder-path'), selectSalesBtn = getEl('select-sales-btn'), salesDataFile = getEl('sales-data-file'),
+              selectTranscriptBtn = getEl('select-transcript-btn'), transcriptFile = getEl('transcript-file'), videoPlayer = getEl('video-player'),
+              videoPlaceholder = getEl('video-placeholder'), timecodeContainer = getEl('timecode-container'), timecode = getEl('timecode'), 
+              playPauseBtn = getEl('play-pause-btn'), playIcon = getEl('play-icon'), pauseIcon = getEl('pause-icon'), 
+              rewindBtn = getEl('rewind-btn'), forwardBtn = getEl('forward-btn'),
+              setCustomStartBtn = getEl('set-custom-start-btn'), setCustomEndBtn = getEl('set-custom-end-btn'), addCustomClipBtn = getEl('add-custom-clip-btn'),
+              interactiveSearchInput = getEl('interactive-search'), interactiveList = getEl('interactive-list'), clipItBtnContainer = getEl('clip-it-btn-container'),
+              clipItAnimClick = getEl('clip-it-anim-click'), clipItAnimLoop = getEl('clip-it-anim-loop'),
+              selectedClipsList = getEl('selected-clips-list'), filterBtn = getEl('filter-btn'), filterMenu = getEl('filter-menu'), 
+              clearFiltersBtn = getEl('clear-filters-btn'), filterMinPrice = getEl('filter-min-price'), filterMaxPrice = getEl('filter-max-price'),
+              terminalContainer = getEl('terminal-container'), terminal = getEl('terminal'),
+              openInputsModalBtn = getEl('open-inputs-modal-btn'), inputsModal = getEl('inputs-modal'), closeModalBtn = getEl('close-modal-btn'),
+              completedClipsContainer = getEl('completed-clips-container'), completedClipsList = getEl('completed-clips-list'),
+              previewModal = getEl('preview-modal'), previewVideo = getEl('preview-video'), closePreviewModalBtn = getEl('close-preview-modal-btn'),
+              addFolderBtn = getEl('add-folder-btn'),
+              celebrationContainer = getEl('celebration-container'),
+              timelineContainer = getEl('timeline-container'), timeline = getEl('timeline'), playhead = getEl('playhead'),
+              zoomBarContainer = getEl('zoom-bar-container'), zoomTrack = getEl('zoom-track'), zoomWindow = getEl('zoom-window'),
+              zoomHandleStart = getEl('zoom-handle-start'), zoomHandleEnd = getEl('zoom-handle-end'),
+              aiAnalyzeBtn = getEl('ai-analyze-btn'),
+              aiChatMessages = getEl('ai-chat-messages'),
+              aiChatInput = getEl('ai-chat-input'),
+              productsModule = getEl('products-module'),
+              aiChatModule = getEl('ai-chat-module'),
+              resizer = getEl('resizer'),
+              aiSearchBtn = getEl('ai-search-btn'),
+              aiPromptModal = getEl('ai-prompt-modal'),
+              closeAiPromptModalBtn = getEl('close-ai-prompt-modal-btn'),
+              aiPromptInput = getEl('ai-prompt-input'),
+              runAiSearchBtn = getEl('run-ai-search-btn'),
+              aiImageInput = getEl('ai-image-input'),
+              imageDropArea = getEl('image-drop-area'),
+              imagePreviewContainer = getEl('image-preview-container'),
+              imagePromptText = getEl('image-prompt-text'),
+              imagePreview = getEl('image-preview'),
+              removeImageBtn = getEl('remove-image-btn'),
+              clipitNavBtn = getEl('clipit-nav-btn'),
+              editorNavBtn = getEl('editor-nav-btn');
+
+
+        // --- State ---
+        let hls, totalDuration = 0, outputFolder = '', csvPath = '', transcriptPath = '';
+        let salesData = [], transcriptData = [], currentJobId = null, statusInterval = null;
+        let clipsToExport = [];
+        let activeFilters = { sortBy: 'default', minPrice: null, maxPrice: null };
+        let completedClips = [];
+        let folders = [];
+        let openFolders = new Set();
+        let customClipStart = null, customClipEnd = null;
+        let clickAnimation, loopAnimation, celebrationAnimation;
+        let isClipping = false;
+        let selectedClipVideos = [];
+        let timelineState = { viewStart: 0, viewEnd: 1, isDragging: null, dragStart: 0 };
+        let selectedAiImage = null;
+
+
+        // --- Utils ---
+        const logToTerminal = (message) => { terminal.textContent += `[${new Date().toLocaleTimeString()}] ${message}\n`; terminal.scrollTop = terminal.scrollHeight; };
+        const formatTime = (seconds, showMillis = false) => { 
+            if (isNaN(seconds) || seconds < 0) return '00:00:00'; 
+            const h = Math.floor(seconds / 3600).toString().padStart(2, '0'); 
+            const m = Math.floor((seconds % 3600) / 60).toString().padStart(2, '0'); 
+            const s = Math.floor(seconds % 60).toString().padStart(2, '0');
+            if (showMillis) {
+                const ms = Math.floor((seconds - Math.floor(seconds)) * 1000).toString().padStart(3, '0');
+                return `${h}:${m}:${s}.${ms}`;
+            }
+            return `${h}:${m}:${s}`; 
+        };
+        const parseTimeToSeconds = (timeStr) => { if (!timeStr) return null; const parts = timeStr.split(':').map(p => parseFloat(p.replace(',', '.'))); if (parts.some(isNaN)) return null; let seconds = 0; if (parts.length === 3) seconds = parts[0]*3600+parts[1]*60+parts[2]; else if (parts.length === 2) seconds = parts[0]*60+parts[1]; else if (parts.length === 1) seconds = parts[0]; return seconds; };
+
+        // --- Global Functions for Python API ---
+        window.toggleLogVisibility = () => terminalContainer.classList.toggle('hidden');
+
+        window.initiateSave = async () => {
+            const sessionData = {
+                sourceUrl: sourceUrlInput.value,
+                salesPath: csvPath,
+                transcriptPath: transcriptPath,
+                outputFolder: outputFolder,
+                clipsToExport: clipsToExport,
+                completedClips: completedClips,
+                folders: folders,
+                openFolders: Array.from(openFolders),
+                lastJobId: currentJobId
+            };
+            const result = await window.pywebview.api.save_session_dialog(JSON.stringify(sessionData, null, 2));
+            if (result.success) {
+                logToTerminal(`Session saved to: ${result.path}`);
+            } else {
+                logToTerminal(`Save failed: ${result.error}`);
+            }
+        };
+
+        window.initiateLoad = async () => {
+            const result = await window.pywebview.api.load_session_dialog();
+            if (result.success) {
+                applySessionState(JSON.parse(result.data));
+                logToTerminal(`Loaded session from: ${result.path}`);
+            } else {
+                logToTerminal(`Load failed: ${result.error}`);
+            }
+        };
+
+        function applySessionState(data) {
+            sourceUrlInput.value = data.sourceUrl || '';
+            outputFolder = data.outputFolder || '';
+            outputFolderPath.textContent = outputFolder ? `...${outputFolder.slice(-40)}` : 'No folder selected...';
+            
+            clipsToExport = data.clipsToExport || [];
+            completedClips = data.completedClips || [];
+            folders = data.folders || [];
+            openFolders = new Set(data.openFolders || []);
+            currentJobId = data.lastJobId || null;
+
+            if (data.salesPath) loadFileData(data.salesPath, 'sales');
+            if (data.transcriptPath) loadFileData(data.transcriptPath, 'transcript');
+
+            if (completedClips.length > 0) {
+                localStorage.setItem('completedClips', JSON.stringify(completedClips));
+                localStorage.setItem('transcriptPath', transcriptPath);
+                const uniqueJobIds = [...new Set(completedClips.map(c => c.jobId).filter(id => id))];
+                uniqueJobIds.forEach(id => {
+                    fetch('/api/register_job_folder', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ job_id: id, output_folder: outputFolder })
+                    });
+                });
+            }
+
+            renderSelectedClipsList();
+            renderCompletedClips();
+        }
+
+
+        // --- UI Logic ---
+        const navigatePage = (pageName) => {
+            if (pageName === 'editor') {
+                window.location.href = '/editor.html';
+            } else {
+                window.location.href = '/index.html';
+            }
+        };
+        
+        const renderSelectedClipsList = () => {
+             selectedClipsList.innerHTML = '';
+            if (clipsToExport.length === 0) {
+                selectedClipsList.innerHTML = `<p class="text-gray-500 text-center p-4">Select products to get started.</p>`;
+                return;
+            }
+            
+            const fragment = document.createDocumentFragment();
+            clipsToExport.forEach(clip => {
+                const listItem = document.createElement('div');
+                listItem.className = 'bg-gray-700 p-2 rounded flex justify-between items-center';
+                listItem.dataset.clipId = clip.id;
+
+                const name = clip.customName || clip.originalName;
+                const startTime = formatTime(clip.start, true);
+                const endTime = formatTime(clip.end, true);
+
+                listItem.innerHTML = `
+                    <span class="clip-name truncate font-medium flex-1 mr-2">${name}</span>
+                    <span class="timecode-edit font-mono text-xs accent-text mr-4 cursor-pointer" data-clip-id="${clip.id}">${startTime} - ${endTime}</span>
+                    <div class="clip-item-actions flex items-center space-x-2">
+                        <svg class="w-4 h-4 rename-btn" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.5L14.732 3.732z"></path></svg>
+                        <svg class="w-4 h-4 delete-btn" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path></svg>
+                    </div>`;
+                fragment.appendChild(listItem);
+            });
+            selectedClipsList.appendChild(fragment);
+        };
+
+        const handleRenameClip = (clipId) => {
+            const clipItem = selectedClipsList.querySelector(`[data-clip-id="${clipId}"]`);
+            const nameSpan = clipItem.querySelector('.clip-name');
+            const currentName = nameSpan.textContent;
+            
+            const input = document.createElement('input');
+            input.type = 'text';
+            input.value = currentName;
+            input.className = 'input-bg w-full p-1 rounded-md text-sm';
+            nameSpan.replaceWith(input);
+            input.focus();
+
+            const saveRename = () => {
+                const clip = clipsToExport.find(c => c.id === clipId);
+                if (clip) {
+                    clip.customName = input.value || clip.originalName;
+                }
+                renderSelectedClipsList();
+            };
+            input.addEventListener('blur', saveRename);
+            input.addEventListener('keydown', (e) => { if (e.key === 'Enter') saveRename(); });
+        };
+
+        const handleTimecodeEdit = (timecodeSpan) => {
+            const clipId = timecodeSpan.dataset.clipId;
+            const clip = clipsToExport.find(c => c.id === clipId);
+            if (!clip) return;
+
+            const existingInputs = selectedClipsList.querySelector('.timecode-input-container');
+            if (existingInputs) {
+                renderSelectedClipsList(); 
+                return;
+            }
+
+            const container = document.createElement('div');
+            container.className = 'timecode-input-container flex items-center space-x-1';
+            container.dataset.clipId = clipId;
+
+            const startInput = document.createElement('input');
+            startInput.type = 'text';
+            startInput.value = formatTime(clip.start, true);
+            startInput.className = 'input-bg w-24 p-0.5 text-center text-xs font-mono rounded';
+
+            const separator = document.createElement('span');
+            separator.textContent = '-';
+            separator.className = 'text-xs';
+
+            const endInput = document.createElement('input');
+            endInput.type = 'text';
+            endInput.value = formatTime(clip.end, true);
+            endInput.className = 'input-bg w-24 p-0.5 text-center text-xs font-mono rounded';
+
+            container.appendChild(startInput);
+            container.appendChild(separator);
+            container.appendChild(endInput);
+
+            timecodeSpan.replaceWith(container);
+            startInput.focus();
+            startInput.select();
+
+            const saveChanges = () => {
+                const newStart = parseTimeToSeconds(startInput.value);
+                const newEnd = parseTimeToSeconds(endInput.value);
+
+                if (newStart === null || newEnd === null) {
+                    logToTerminal("Invalid time format. Use HH:MM:SS.ms");
+                } else if (newStart >= newEnd) {
+                    logToTerminal("Start time must be before end time.");
+                } else if (newEnd > totalDuration) {
+                    logToTerminal(`End time cannot exceed video duration of ${formatTime(totalDuration)}.`);
+                } else {
+                    clip.start = newStart;
+                    clip.end = newEnd;
+                    logToTerminal(`Updated time for clip "${clip.customName || clip.originalName}".`);
+                }
+                renderSelectedClipsList();
+            };
+            
+            const handleKeyDown = (e) => {
+                if (e.key === 'Enter') {
+                    saveChanges();
+                } else if (e.key === 'Escape') {
+                    renderSelectedClipsList();
+                }
+            };
+
+            const handleBlur = () => {
+                 setTimeout(() => {
+                    if (document.activeElement !== startInput && document.activeElement !== endInput) {
+                        saveChanges();
+                    }
+                }, 100); 
+            };
+            
+            startInput.addEventListener('keydown', handleKeyDown);
+            endInput.addEventListener('keydown', handleKeyDown);
+            startInput.addEventListener('blur', handleBlur);
+            endInput.addEventListener('blur', handleBlur);
+        };
+        
+        selectedClipsList.addEventListener('click', (e) => {
+            const target = e.target;
+            const clipItem = target.closest('[data-clip-id]');
+            if (!clipItem) return;
+            
+            const clipId = clipItem.dataset.clipId;
+
+            if (target.closest('.rename-btn')) {
+                handleRenameClip(clipId);
+            } else if (target.closest('.delete-btn')) {
+                const clipToRemove = clipsToExport.find(c => c.id === clipId);
+                clipsToExport = clipsToExport.filter(c => c.id !== clipId);
+                renderSelectedClipsList();
+                if (clipToRemove && clipToRemove.type === 'product') {
+                    renderProductList();
+                }
+            } else if (target.classList.contains('timecode-edit')) {
+                handleTimecodeEdit(target);
+            }
+        });
+
+        const renderProductList = (dataToRender = null) => {
+            let filteredData;
+
+            if (dataToRender) {
+                filteredData = dataToRender;
+            } else {
+                const filterText = interactiveSearchInput.value.toLowerCase();
+                filteredData = salesData.filter(item => 
+                    item.status?.toUpperCase() === 'SOLD' && 
+                    item.is_pending_payment?.toLowerCase() === 'false' &&
+                    parseTimeToSeconds(item.time) !== null
+                );
+
+                if (filterText) filteredData = filteredData.filter(item => item.product_name?.toLowerCase().includes(filterText));
+                if (activeFilters.minPrice !== null) filteredData = filteredData.filter(item => (parseFloat(item.sold_price_amount)/100) >= activeFilters.minPrice);
+                if (activeFilters.maxPrice !== null) filteredData = filteredData.filter(item => (parseFloat(item.sold_price_amount)/100) <= activeFilters.maxPrice);
+                
+                if (activeFilters.sortBy === 'price_high_low') filteredData.sort((a, b) => (parseFloat(b.sold_price_amount) || 0) - (parseFloat(a.sold_price_amount) || 0));
+                else if (activeFilters.sortBy === 'price_low_high') filteredData.sort((a, b) => (parseFloat(a.sold_price_amount) || 0) - (parseFloat(b.sold_price_amount) || 0));
+                else filteredData.sort((a, b) => (parseTimeToSeconds(a.time) || 0) - (parseTimeToSeconds(b.time) || 0));
+            }
+            
+            interactiveList.innerHTML = '';
+            if (filteredData.length === 0) { interactiveList.innerHTML = `<div class="p-4 text-center text-gray-500 text-sm">No products found.</div>`; return; }
+            
+            const fragment = document.createDocumentFragment();
+            filteredData.forEach(item => {
+                const originalIndex = salesData.findIndex(d => d.product_id === item.product_id && d.time === item.time);
+                if (originalIndex === -1) return;
+                const itemWrapper = document.createElement('div');
+                const itemDiv = document.createElement('div');
+                itemWrapper.appendChild(itemDiv);
+                itemDiv.className = 'interactive-item p-2 border-b border-gray-700 cursor-pointer flex items-center space-x-2 text-sm';
+                const price = item.sold_price_amount ? `$${(parseFloat(item.sold_price_amount) / 100).toFixed(2)}` : 'N/A';
+                const isChecked = clipsToExport.some(c => c.id === `product_${originalIndex}`);
+                itemDiv.innerHTML = `<input type="checkbox" data-index="${originalIndex}" class="form-checkbox h-4 w-4 accent-yellow-400 flex-shrink-0" ${isChecked ? 'checked' : ''}><div class="flex-grow overflow-hidden"><div class="font-semibold truncate">${item.product_name || 'No Name'}</div><div class="text-xs text-gray-400">Time: ${item.time || 'N/A'} | Sold: ${price}</div></div>`;
+                
+                itemDiv.querySelector('input[type="checkbox"]').addEventListener('change', (e) => {
+                    const index = parseInt(e.target.dataset.index, 10);
+                    const clipId = `product_${index}`;
+                    if (e.target.checked) {
+                        const soldTime = salesData[index].time;
+                        const soldTimeInSeconds = parseTimeToSeconds(soldTime);
+                        let defaultStart, defaultEnd;
+
+                        if (soldTimeInSeconds !== null) {
+                            defaultStart = Math.max(0, soldTimeInSeconds - 45);
+                            defaultEnd = soldTimeInSeconds + 15;
+                        }
+
+                        const clip = {
+                            id: clipId, type: 'product', originalName: salesData[index].product_name, customName: null,
+                            start: defaultStart,
+                            end: defaultEnd,
+                            sold_time: soldTime,
+                            sold_price: salesData[index].sold_price_amount, originalIndex: index
+                        };
+                        clipsToExport.push(clip);
+                    } else {
+                        clipsToExport = clipsToExport.filter(c => c.id !== clipId);
+                    }
+                    renderSelectedClipsList();
+                });
+
+                itemDiv.addEventListener('click', (e) => {
+                    if (e.target.type === 'checkbox') return;
+                    const existingContext = itemWrapper.querySelector('.transcript-context');
+                    if (existingContext) { existingContext.remove(); return; }
+                    document.querySelectorAll('.transcript-context').forEach(el => el.remove());
+                    const soldTime = parseTimeToSeconds(item.time);
+                    if (soldTime === null) { logToTerminal(`Product "${item.product_name}" has an invalid time.`); return; }
+                    videoPlayer.currentTime = soldTime;
+                    const contextStart = Math.max(0, soldTime - 60), contextEnd = soldTime + 15;
+                    const relevantLines = transcriptData.filter(line => line.start_sec >= contextStart && line.start_sec <= contextEnd);
+                    if (relevantLines.length > 0) {
+                        const contextDiv = document.createElement('div');
+                        contextDiv.className = 'transcript-context p-2 my-1 text-xs text-gray-300 overflow-y-auto max-h-48';
+                        let closestLine = null, minDiff = Infinity;
+                        relevantLines.forEach(line => { const diff = Math.abs(line.start_sec - soldTime); if (diff < minDiff) { minDiff = diff; closestLine = line; } });
+                        contextDiv.innerHTML = relevantLines.map(line => `<p class="transcript-line"><span class="font-mono ${line === closestLine ? 'text-red-500' : 'text-yellow-400'} cursor-pointer timecode-span" data-time-sec="${line.start_sec}" data-index="${originalIndex}">${formatTime(line.start_sec)}</span>: ${line.text}</p>`).join('');
+                        contextDiv.addEventListener('click', handleTranscriptClick);
+                        itemWrapper.appendChild(contextDiv);
+                    }
+                });
+                fragment.appendChild(itemWrapper);
+            });
+            interactiveList.appendChild(fragment);
+        };
+        
+        const handleTranscriptClick = (e) => {
+            e.stopPropagation();
+            const target = e.target.closest('.timecode-span');
+            if (!target) return;
+            const timeSec = parseFloat(target.dataset.timeSec), originalIndex = parseInt(target.dataset.index, 10);
+            const clipId = `product_${originalIndex}`;
+            if (videoPlayer.seekable) videoPlayer.currentTime = timeSec;
+            
+            let clip = clipsToExport.find(c => c.id === clipId);
+             if (!clip) {
+                const checkbox = document.querySelector(`input[type="checkbox"][data-index="${originalIndex}"]`);
+                if (checkbox && !checkbox.checked) {
+                    checkbox.checked = true;
+                    checkbox.dispatchEvent(new Event('change'));
+                    clip = clipsToExport.find(c => c.id === clipId);
+                }
+            }
+            if (!clip) return;
+
+            const contextDiv = target.closest('.transcript-context');
+            if(clip.startEl) clip.startEl.classList.remove('timecode-start');
+            if(clip.endEl) clip.endEl.classList.remove('timecode-end');
+
+            if (e.shiftKey) { clip.end = timeSec; clip.endEl = target; } 
+            else { clip.start = timeSec; clip.startEl = target; }
+
+            if (clip.start !== undefined && clip.end !== undefined && clip.start > clip.end) {
+                [clip.start, clip.end] = [clip.end, clip.start];
+                [clip.startEl, clip.endEl] = [clip.endEl, clip.startEl];
+            }
+
+            const allLines = contextDiv.querySelectorAll('.transcript-line');
+            allLines.forEach(line => {
+                line.classList.remove('timecode-range');
+                const span = line.querySelector('.timecode-span');
+                if (span) {
+                    const lineTimeSec = parseFloat(span.dataset.timeSec);
+                    if (clip.start !== undefined && clip.end !== undefined && lineTimeSec >= clip.start && lineTimeSec <= clip.end) {
+                        line.classList.add('timecode-range');
+                    }
+                }
+            });
+
+            if(clip.startEl) {
+                clip.startEl.classList.add('timecode-start');
+                clip.startEl.parentElement.classList.remove('timecode-range');
+            }
+            if(clip.endEl) {
+                clip.endEl.classList.add('timecode-end');
+                clip.endEl.parentElement.classList.remove('timecode-range');
+            }
+            
+            renderSelectedClipsList();
+        };
+
+        const renderCompletedClips = () => {
+            const listContainer = getEl('completed-clips-list');
+            listContainer.innerHTML = '';
+
+            localStorage.setItem('completedClips', JSON.stringify(completedClips));
+            if(transcriptPath) localStorage.setItem('transcriptPath', transcriptPath);
+
+            if (folders.length === 0 && completedClips.filter(c => !c.folderId).length === 0) {
+                listContainer.innerHTML = `<p class="text-gray-500 text-center p-4">Your exported clips will appear here.</p>`;
+                return;
+            }
+
+            folders.forEach(folder => {
+                const folderEl = createFolderElement(folder);
+                listContainer.appendChild(folderEl);
+            });
+
+            const unassignedContainer = document.createElement('div');
+            unassignedContainer.className = 'unassigned-drop-zone';
+
+            const unassignedClips = completedClips.filter(c => !c.folderId);
+            if (unassignedClips.length > 0) {
+                const grid = document.createElement('div');
+                grid.className = 'clip-grid';
+                unassignedClips.forEach(clipData => {
+                    const clipEl = createClipElement(clipData);
+                    grid.appendChild(clipEl);
+                });
+                unassignedContainer.appendChild(grid)
+            }
+            listContainer.appendChild(unassignedContainer);
+
+            unassignedContainer.addEventListener('dragover', (e) => {
+                e.preventDefault();
+                unassignedContainer.classList.add('drag-over');
+            });
+            unassignedContainer.addEventListener('dragleave', () => {
+                unassignedContainer.classList.remove('drag-over');
+            });
+            unassignedContainer.addEventListener('drop', (e) => {
+                e.preventDefault();
+                unassignedContainer.classList.remove('drag-over');
+                const videoIds = JSON.parse(e.dataTransfer.getData('text/plain'));
+                videoIds.forEach(videoId => {
+                    const clip = completedClips.find(c => c.video.endsWith(videoId));
+                    if (clip) {
+                        delete clip.folderId;
+                    }
+                });
+                renderCompletedClips();
+            });
+        };
+
+        function createClipElement(clipData) {
+            const videoFilename = clipData.video.split(/\/|\\/).pop();
+            const thumbFilename = clipData.thumbnail.split(/\/|\\/).pop();
+            const displayName = videoFilename.replace(/\.mp4$/, '');
+            const jobIdForClip = clipData.jobId || currentJobId;
+
+            const item = document.createElement('div');
+            item.className = 'clip-thumbnail-item';
+            if (selectedClipVideos.includes(videoFilename)) {
+                item.classList.add('selected');
+            }
+            item.draggable = true;
+            item.dataset.videoId = videoFilename;
+            item.innerHTML = `
+                <div class="delete-btn">×</div>
+                <img src="/api/preview/${jobIdForClip}/${encodeURIComponent(thumbFilename)}" alt="Clip thumbnail for ${displayName}" onerror="this.src='https://placehold.co/160/212121/777?text=No+Thumb'">
+                <span>${displayName}</span>
+            `;
+
+            item.addEventListener('click', (e) => {
+                e.stopPropagation();
+                const videoId = item.dataset.videoId;
+
+                const allClips = document.querySelectorAll('.clip-thumbnail-item');
+                
+                if (!e.shiftKey) {
+                    allClips.forEach(clip => clip.classList.remove('selected'));
+                    selectedClipVideos = [videoId];
+                    item.classList.add('selected');
+                } else {
+                    const index = selectedClipVideos.indexOf(videoId);
+                    if (index > -1) {
+                        selectedClipVideos.splice(index, 1);
+                        item.classList.remove('selected');
+                    } else {
+                        selectedClipVideos.push(videoId);
+                        item.classList.add('selected');
+                    }
+                }
+            });
+
+            item.addEventListener('dblclick', (e) => {
+                e.stopPropagation();
+                previewVideo.src = `/api/preview/${jobIdForClip}/${encodeURIComponent(videoFilename)}`;
+                previewModal.classList.remove('hidden');
+                previewVideo.play();
+            });
+            
+            item.addEventListener('dragstart', (e) => {
+                if (!selectedClipVideos.includes(videoFilename)) {
+                    const allClips = document.querySelectorAll('.clip-thumbnail-item');
+                    allClips.forEach(clip => clip.classList.remove('selected'));
+                    item.classList.add('selected');
+                    selectedClipVideos = [videoFilename];
+                }
+                e.dataTransfer.setData('text/plain', JSON.stringify(selectedClipVideos));
+            });
+
+            item.querySelector('.delete-btn').addEventListener('click', (e) => {
+                e.stopPropagation();
+                e.preventDefault();
+                completedClips = completedClips.filter(c => c.video !== clipData.video);
+                selectedClipVideos = selectedClipVideos.filter(v => v !== videoFilename);
+                renderCompletedClips();
+            });
+            
+            item.addEventListener('contextmenu', (e) => {
+                e.preventDefault();
+                completedClips = completedClips.filter(c => c.video !== clipData.video);
+                selectedClipVideos = selectedClipVideos.filter(v => v !== videoFilename);
+                renderCompletedClips();
+            });
+
+            return item;
+        }
+
+        function createFolderElement(folder) {
+            const folderEl = document.createElement('div');
+            folderEl.className = 'folder';
+            if (openFolders.has(folder.id)) {
+                folderEl.classList.add('open');
+            }
+            folderEl.dataset.folderId = folder.id;
+
+            const header = document.createElement('div');
+            header.className = 'folder-header';
+            header.innerHTML = `
+                <svg fill="currentColor" viewBox="0 0 20 20"><path d="M2 6a2 2 0 012-2h5l2 2h5a2 2 0 012 2v6a2 2 0 01-2 2H4a2 2 0 01-2-2V6z"></path></svg>
+                <span>${folder.name}</span>
+                <button class="delete-folder-btn">×</button>
+            `;
+            
+            const content = document.createElement('div');
+            content.className = 'folder-content';
+
+            const grid = document.createElement('div');
+            grid.className = 'clip-grid';
+            content.appendChild(grid);
+
+            const clipsInFolder = completedClips.filter(c => c.folderId === folder.id);
+            clipsInFolder.forEach(clipData => {
+                const clipEl = createClipElement(clipData);
+                grid.appendChild(clipEl);
+            });
+
+            folderEl.appendChild(header);
+            folderEl.appendChild(content);
+
+            header.addEventListener('click', (e) => {
+                if(e.target.closest('.delete-folder-btn')) return;
+                folderEl.classList.toggle('open');
+                if (folderEl.classList.contains('open')) {
+                    openFolders.add(folder.id);
+                } else {
+                    openFolders.delete(folder.id);
+                }
+            });
+
+            header.querySelector('.delete-folder-btn').addEventListener('click', (e) => {
+                e.stopPropagation();
+                handleDeleteFolder(folder);
+            });
+            
+            header.addEventListener('contextmenu', (e) => {
+                e.preventDefault();
+                handleDeleteFolder(folder);
+            });
+
+            folderEl.addEventListener('dragover', (e) => {
+                e.preventDefault();
+                folderEl.classList.add('drag-over');
+            });
+            folderEl.addEventListener('dragleave', () => {
+                folderEl.classList.remove('drag-over');
+            });
+            folderEl.addEventListener('drop', (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                folderEl.classList.remove('drag-over');
+                const videoIds = JSON.parse(e.dataTransfer.getData('text/plain'));
+                videoIds.forEach(videoId => {
+                    const clip = completedClips.find(c => c.video.endsWith(videoId));
+                    if (clip) {
+                        clip.folderId = folder.id;
+                    }
+                });
+                renderCompletedClips();
+            });
+
+            return folderEl;
+        }
+        
+        function handleDeleteFolder(folder) {
+            const clipsInFolder = completedClips.filter(c => c.folderId === folder.id);
+            folders = folders.filter(f => f.id !== folder.id);
+            clipsInFolder.forEach(clip => delete clip.folderId);
+            openFolders.delete(folder.id);
+            renderCompletedClips();
+        }
+
+
+        addFolderBtn.addEventListener('click', () => {
+            const folderName = prompt("Enter folder name:", "New Folder");
+            if (folderName) {
+                const newFolder = { id: `folder_${Date.now()}`, name: folderName };
+                folders.push(newFolder);
+                openFolders.add(newFolder.id);
+                renderCompletedClips();
+            }
+        });
+
+
+        async function startClipJob() {
+            if (isClipping) return;
+
+            logToTerminal(`Starting clip job...`);
+            
+            const params = {
+                source_url: sourceUrlInput.value,
+                output_folder: outputFolder,
+                selected_products: []
+            };
+
+            clipsToExport.forEach(clip => {
+                const { start, end, sold_time, sold_price, originalName, customName } = clip;
+                
+                if (start !== undefined && end !== undefined && end > start) {
+                    const name = customName || originalName;
+                    params.selected_products.push({
+                        name: name, start: start, end: end,
+                        sold_time: sold_time, sold_price: sold_price
+                    });
+                } else {
+                    logToTerminal(`Warning: Clip for "${originalName}" has invalid time and will be skipped.`);
+                }
+            });
+
+            if (params.selected_products.length === 0) {
+                logToTerminal("Error: No valid clips to export. Ensure selected items have a valid timecode.");
+                return;
+            }
+
+            isClipping = true;
+            clipItBtnContainer.style.pointerEvents = 'none';
+
+            if (clickAnimation && loopAnimation) {
+                clipItAnimClick.style.display = 'block';
+                clipItAnimLoop.style.display = 'none';
+                clickAnimation.goToAndPlay(0, true);
+                
+                const onIntroComplete = () => {
+                    if (isClipping) {
+                        clipItAnimClick.style.display = 'none';
+                        clipItAnimLoop.style.display = 'block';
+                        loopAnimation.play();
+                    }
+                    clickAnimation.removeEventListener('complete', onIntroComplete);
+                };
+                clickAnimation.addEventListener('complete', onIntroComplete);
+            }
+
+            try {
+                const response = await fetch('/api/clip', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(params) });
+                if (!response.ok) throw new Error(`HTTP Error: ${await response.text()}`);
+                const data = await response.json();
+                currentJobId = data.job_id;
+                logToTerminal(`Job started with ID: ${currentJobId}`);
+            } catch (error) {
+                logToTerminal(`Error starting job: ${error.message}`);
+                isClipping = false;
+                clipItBtnContainer.style.pointerEvents = 'auto';
+            }
+        }
+        
+        async function loadVideo() {
+            const curlCommand = sourceUrlInput.value;
+            if (!curlCommand) { logToTerminal('Error: Please provide a video cURL.'); return; }
+            logToTerminal('Loading video...');
+            loadVideoBtn.disabled = true;
+            loadVideoBtn.textContent = '...';
+            try {
+                const infoResponse = await fetch(`/api/video_info?curl=${encodeURIComponent(curlCommand)}`);
+                if (!infoResponse.ok) {
+                    throw new Error(await infoResponse.text());
+                }
+                const info = await infoResponse.json();
+                if (info.error) { throw new Error(info.error); }
+                totalDuration = info.duration;
+                logToTerminal(`Video duration: ${formatTime(totalDuration)}`);
+                const proxyUrl = `/api/hls_proxy?curl=${encodeURIComponent(curlCommand)}&target=${encodeURIComponent(curlCommand)}`;
+                videoPlaceholder.style.display = 'none';
+                videoPlayer.style.display = 'block';
+                if (Hls.isSupported()) {
+                    if(hls) hls.destroy();
+                    hls = new Hls();
+                    hls.loadSource(proxyUrl);
+                    hls.attachMedia(videoPlayer);
+                } else if (videoPlayer.canPlayType('application/vnd.apple.mpegurl')) {
+                    videoPlayer.src = proxyUrl;
+                }
+                timelineState = { viewStart: 0, viewEnd: 1, isDragging: null, dragStart: 0 };
+                updateZoomUI();
+                renderTimeline();
+            } catch (error) {
+                let userMessage = `Error loading video: ${error.message}`;
+                if (error.message.includes('401')) {
+                    userMessage = "Authentication Failed (401). The cURL command has likely expired. Please get a fresh one and try again.";
+                }
+                logToTerminal(userMessage);
+                videoPlaceholder.textContent = userMessage;
+                videoPlaceholder.style.display = 'block';
+                videoPlayer.style.display = 'none';
+            } finally {
+                loadVideoBtn.disabled = false;
+                loadVideoBtn.textContent = 'Load';
+            }
+        }
+        
+        async function loadFileData(path, type) {
+            if (!path) return;
+
+            if (type === 'sales') {
+                csvPath = path;
+                salesDataFile.textContent = `...${path.slice(-40)}`;
+                try {
+                    const response = await fetch(`/api/csv_data?path=${encodeURIComponent(path)}&type=sales`);
+                    if (!response.ok) throw new Error(`Server error: ${await response.text()}`);
+                    salesData = await response.json();
+                    logToTerminal(`Loaded ${salesData.length} sales records.`);
+                    renderProductList();
+                } catch (error) {
+                    logToTerminal(`Error loading sales data: ${error.message}`);
+                }
+            } else if (type === 'transcript') {
+                transcriptPath = path;
+                localStorage.setItem('transcriptPath', transcriptPath);
+                transcriptFile.textContent = `...${path.slice(-40)}`;
+                try {
+                    const response = await fetch(`/api/csv_data?path=${encodeURIComponent(path)}&type=transcript`);
+                    if (!response.ok) throw new Error(`Server error: ${await response.text()}`);
+                    transcriptData = await response.json();
+                    transcriptData.forEach(line => line.start_sec = parseTimeToSeconds(line.start));
+                    logToTerminal(`Loaded ${transcriptData.length} transcript lines.`);
+                } catch (error) {
+                    logToTerminal(`Error loading transcript: ${error.message}`);
+                }
+            }
+        }
+
+        // --- Timeline Rendering ---
+        function renderTimeline() {
+            if (totalDuration === 0) return;
+            timeline.innerHTML = ''; // Clear previous ticks and markers
+
+            const viewDuration = (timelineState.viewEnd - timelineState.viewStart) * totalDuration;
+            const viewStartSeconds = timelineState.viewStart * totalDuration;
+
+            const intervals = [0.1, 0.5, 1, 5, 10, 30, 60, 300, 600, 1800, 3600];
+            const minTickSpacing = 60;
+            let majorTickInterval = intervals[0];
+            for(let i = 0; i < intervals.length; i++) {
+                if ((intervals[i] / viewDuration) * timelineContainer.clientWidth > minTickSpacing) {
+                    majorTickInterval = intervals[i];
+                    break;
+                }
+            }
+            
+            const firstTick = Math.floor(viewStartSeconds / majorTickInterval) * majorTickInterval;
+            
+            for (let t = firstTick; t < viewStartSeconds + viewDuration; t += majorTickInterval) {
+                if (t > totalDuration) break;
+                const percent = (t - viewStartSeconds) / viewDuration;
+                const x = percent * timelineContainer.clientWidth;
+                
+                const tick = document.createElement('div');
+                tick.className = 'tick major';
+                tick.style.left = `${x}px`;
+                timeline.appendChild(tick);
+
+                const label = document.createElement('span');
+                label.className = 'tick-label';
+                label.textContent = formatTime(t, viewDuration < 10);
+                label.style.left = `${x}px`;
+                timeline.appendChild(label);
+            }
+
+            if (customClipStart !== null && customClipStart >= viewStartSeconds && customClipStart <= viewStartSeconds + viewDuration) {
+                const startX = ((customClipStart - viewStartSeconds) / viewDuration) * timelineContainer.clientWidth;
+                const startMarker = document.createElement('div');
+                startMarker.className = 'timeline-marker timeline-marker-start';
+                startMarker.style.left = `${startX - 5}px`;
+                timeline.appendChild(startMarker);
+            }
+            if (customClipEnd !== null && customClipEnd >= viewStartSeconds && customClipEnd <= viewStartSeconds + viewDuration) {
+                 const endX = ((customClipEnd - viewStartSeconds) / viewDuration) * timelineContainer.clientWidth;
+                const endMarker = document.createElement('div');
+                endMarker.className = 'timeline-marker timeline-marker-end';
+                endMarker.style.left = `${endX - 5}px`;
+                timeline.appendChild(endMarker);
+            }
+
+            if (customClipStart !== null && customClipEnd !== null) {
+                const rangeStart = Math.max(customClipStart, viewStartSeconds);
+                const rangeEnd = Math.min(customClipEnd, viewStartSeconds + viewDuration);
+                if(rangeEnd > rangeStart) {
+                    const startX = ((rangeStart - viewStartSeconds) / viewDuration) * timelineContainer.clientWidth;
+                    const endX = ((rangeEnd - viewStartSeconds) / viewDuration) * timelineContainer.clientWidth;
+                    const range = document.createElement('div');
+                    range.className = 'timeline-range';
+                    range.style.left = `${startX}px`;
+                    range.style.width = `${endX - startX}px`;
+                    timeline.appendChild(range);
+                }
+            }
+            updatePlayhead();
+        }
+
+        function updatePlayhead() {
+            if (totalDuration === 0) return;
+            const viewDuration = (timelineState.viewEnd - timelineState.viewStart) * totalDuration;
+            const viewStartSeconds = timelineState.viewStart * totalDuration;
+
+            if (videoPlayer.currentTime >= viewStartSeconds && videoPlayer.currentTime <= viewStartSeconds + viewDuration) {
+                const percentInView = (videoPlayer.currentTime - viewStartSeconds) / viewDuration;
+                playhead.style.left = `${percentInView * 100}%`;
+                playhead.style.display = 'block';
+            } else {
+                playhead.style.display = 'none';
+            }
+        }
+
+        function updateZoomUI() {
+            const containerWidth = zoomBarContainer.clientWidth;
+            zoomWindow.style.left = `${timelineState.viewStart * containerWidth}px`;
+            zoomWindow.style.width = `${(timelineState.viewEnd - timelineState.viewStart) * containerWidth}px`;
+        }
+
+        // --- Event Listeners ---
+        document.addEventListener('DOMContentLoaded', () => {
+             // Only load animations if the data objects are not empty placeholders
+            if (clickAnimationData && Object.keys(clickAnimationData).length > 0) {
+                clickAnimation = lottie.loadAnimation({ container: clipItAnimClick, renderer: 'svg', loop: false, autoplay: false, animationData: clickAnimationData });
+            }
+            if (loopAnimationData && Object.keys(loopAnimationData).length > 0) {
+                loopAnimation = lottie.loadAnimation({ container: clipItAnimLoop, renderer: 'svg', loop: true, autoplay: false, animationData: loopAnimationData });
+            }
+            if (celebrationAnimationData && Object.keys(celebrationAnimationData).length > 0) {
+                celebrationAnimation = lottie.loadAnimation({ container: celebrationContainer, renderer: 'svg', loop: false, autoplay: false, animationData: celebrationAnimationData });
+            }
+        });
+        
+        window.addEventListener('pywebviewready', () => {
+            logToTerminal('UI Initialized.');
+            renderCompletedClips();
+        });
+
+        loadVideoBtn.addEventListener('click', loadVideo);
+        clipItBtnContainer.addEventListener('click', startClipJob);
+        
+        closePreviewModalBtn.addEventListener('click', () => {
+            previewModal.classList.add('hidden');
+            previewVideo.pause();
+            previewVideo.src = '';
+        });
+        previewModal.addEventListener('click', (e) => {
+            if (e.target === previewModal) {
+                closePreviewModalBtn.click();
+            }
+        });
+
+        openInputsModalBtn.addEventListener('click', () => inputsModal.classList.remove('hidden'));
+        closeModalBtn.addEventListener('click', () => inputsModal.classList.add('hidden'));
+        inputsModal.addEventListener('click', (e) => { if (e.target === inputsModal) { inputsModal.classList.add('hidden'); } });
+
+        interactiveSearchInput.addEventListener('input', renderProductList);
+        filterBtn.addEventListener('click', () => filterMenu.classList.toggle('hidden'));
+        document.querySelectorAll('input[name="sort"]').forEach(radio => radio.addEventListener('change', (e) => { activeFilters.sortBy = e.target.value; renderProductList(); }));
+        [filterMinPrice, filterMaxPrice].forEach(input => input.addEventListener('input', () => {
+            activeFilters.minPrice = filterMinPrice.value ? parseFloat(filterMinPrice.value) : null;
+            activeFilters.maxPrice = filterMaxPrice.value ? parseFloat(filterMaxPrice.value) : null;
+            renderProductList();
+        }));
+        clearFiltersBtn.addEventListener('click', () => {
+            activeFilters = { sortBy: 'default', minPrice: null, maxPrice: null };
+            document.querySelector('input[name="sort"][value="default"]').checked = true;
+            interactiveSearchInput.value = '';
+            filterMinPrice.value = ''; filterMaxPrice.value = '';
+            renderProductList();
+            filterMenu.classList.add('hidden');
+        });
+
+        selectFolderBtn.addEventListener('click', async () => { const folder = await window.pywebview.api.select_folder(); if (folder) { outputFolder = folder; outputFolderPath.textContent = `...${folder.slice(-40)}`; } });
+        
+        selectSalesBtn.addEventListener('click', async () => {
+            const filePath = await window.pywebview.api.select_file(['CSV files (*.csv)']);
+            if (filePath) {
+                loadFileData(filePath, 'sales');
+            }
+        });
+        selectTranscriptBtn.addEventListener('click', async () => {
+            const filePath = await window.pywebview.api.select_file(['CSV files (*.csv)']);
+            if (filePath) {
+                loadFileData(filePath, 'transcript');
+            }
+        });
+
+        // Player controls
+        playPauseBtn.addEventListener('click', () => { if (videoPlayer.paused) videoPlayer.play(); else videoPlayer.pause(); });
+        videoPlayer.addEventListener('play', () => { playIcon.classList.add('hidden'); pauseIcon.classList.remove('hidden'); });
+        videoPlayer.addEventListener('pause', () => { playIcon.classList.remove('hidden'); pauseIcon.classList.add('hidden'); });
+        videoPlayer.addEventListener('timeupdate', () => { 
+            timecode.textContent = `${formatTime(videoPlayer.currentTime)} / ${formatTime(totalDuration)}`; 
+            updatePlayhead();
+        });
+
+        rewindBtn.addEventListener('click', () => videoPlayer.currentTime = Math.max(0, videoPlayer.currentTime - 10));
+        forwardBtn.addEventListener('click', () => videoPlayer.currentTime = Math.min(totalDuration, videoPlayer.currentTime + 10));
+
+        setCustomStartBtn.addEventListener('click', () => {
+            customClipStart = videoPlayer.currentTime;
+            logToTerminal(`Custom clip start set to: ${formatTime(customClipStart)}`);
+            setCustomStartBtn.classList.add('text-yellow-400');
+            renderTimeline();
+        });
+        setCustomEndBtn.addEventListener('click', () => {
+            customClipEnd = videoPlayer.currentTime;
+            logToTerminal(`Custom clip end set to: ${formatTime(customClipEnd)}`);
+            setCustomEndBtn.classList.add('text-yellow-400');
+            renderTimeline();
+        });
+
+        addCustomClipBtn.addEventListener('click', () => {
+            if (customClipStart === null || customClipEnd === null || customClipStart >= customClipEnd) {
+                logToTerminal("Error: Invalid time range. Set a start time that is before the end time.");
+                return;
+            }
+            const clip = {
+                id: `custom_${Date.now()}`,
+                type: 'custom',
+                originalName: `Custom Clip ${formatTime(customClipStart)} - ${formatTime(customClipEnd)}`,
+                customName: null,
+                start: customClipStart,
+                end: customClipEnd,
+            };
+            clipsToExport.push(clip);
+            renderSelectedClipsList();
+            logToTerminal(`Added custom clip: ${clip.originalName}`);
+            customClipStart = null;
+            customClipEnd = null;
+            setCustomStartBtn.classList.remove('text-yellow-400');
+            setCustomEndBtn.classList.remove('text-yellow-400');
+            renderTimeline();
+        });
+
+        timecodeContainer.addEventListener('click', (e) => {
+            if (e.target.closest('button')) return;
+
+            const timeSpan = getEl('timecode');
+            const currentText = timeSpan.textContent.split(' / ')[0];
+            const input = document.createElement('input');
+            input.type = 'text';
+            input.value = currentText;
+            input.className = 'input-bg w-24 p-0 text-center text-sm font-mono';
+            
+            timeSpan.replaceWith(input);
+            input.focus();
+
+            const applyTime = () => {
+                const newTime = parseTimeToSeconds(input.value);
+                if (newTime !== null && newTime >= 0 && newTime <= totalDuration) {
+                    videoPlayer.currentTime = newTime;
+                } else {
+                    logToTerminal("Invalid timecode entered.");
+                }
+                const newTimeSpan = document.createElement('span');
+                newTimeSpan.id = 'timecode';
+                newTimeSpan.textContent = `${formatTime(videoPlayer.currentTime)} / ${formatTime(totalDuration)}`;
+                input.replaceWith(newTimeSpan);
+            };
+
+            input.addEventListener('blur', applyTime);
+            input.addEventListener('keydown', (e) => {
+                if (e.key === 'Enter') applyTime();
+                else if (e.key === 'Escape') {
+                    const newTimeSpan = document.createElement('span');
+                    newTimeSpan.id = 'timecode';
+                    newTimeSpan.textContent = `${formatTime(videoPlayer.currentTime)} / ${formatTime(totalDuration)}`;
+                    input.replaceWith(newTimeSpan);
+                }
+            });
+        });
+
+        // Timeline and Zoom Bar interaction
+        timelineContainer.addEventListener('click', (e) => {
+            if (totalDuration > 0) {
+                const rect = timelineContainer.getBoundingClientRect();
+                const clickX = e.clientX - rect.left;
+                const viewDuration = (timelineState.viewEnd - timelineState.viewStart) * totalDuration;
+                const viewStartSeconds = timelineState.viewStart * totalDuration;
+                videoPlayer.currentTime = viewStartSeconds + (clickX / rect.width) * viewDuration;
+            }
+        });
+
+        const handleDrag = (e) => {
+            if (!timelineState.isDragging) return;
+            e.preventDefault();
+            const rect = zoomBarContainer.getBoundingClientRect();
+            const x = e.clientX - rect.left;
+            const percent = Math.max(0, Math.min(1, x / rect.width));
+            const startPercent = timelineState.viewStart;
+            const endPercent = timelineState.viewEnd;
+
+            if (timelineState.isDragging === 'start') {
+                timelineState.viewStart = Math.min(percent, endPercent - 0.005);
+            } else if (timelineState.isDragging === 'end') {
+                timelineState.viewEnd = Math.max(percent, startPercent + 0.005);
+            } else if (timelineState.isDragging === 'window') {
+                const startX = timelineState.dragStart.x;
+                const dx = (x - startX) / rect.width;
+                timelineState.viewStart = Math.max(0, timelineState.dragStart.viewStart + dx);
+                timelineState.viewEnd = timelineState.viewStart + timelineState.dragStart.width;
+                if(timelineState.viewEnd > 1) {
+                    timelineState.viewEnd = 1;
+                    timelineState.viewStart = 1 - timelineState.dragStart.width;
+                }
+            }
+            updateZoomUI();
+            renderTimeline();
+        };
+
+        const stopDrag = () => {
+            timelineState.isDragging = null;
+            document.body.style.cursor = 'default';
+        };
+
+        zoomHandleStart.addEventListener('mousedown', (e) => { e.stopPropagation(); timelineState.isDragging = 'start'; });
+        zoomHandleEnd.addEventListener('mousedown', (e) => { e.stopPropagation(); timelineState.isDragging = 'end'; });
+        zoomWindow.addEventListener('mousedown', (e) => {
+            e.stopPropagation();
+            timelineState.isDragging = 'window';
+            timelineState.dragStart = { x: e.clientX, viewStart: timelineState.viewStart, width: timelineState.viewEnd - timelineState.viewStart };
+        });
+        window.addEventListener('mousemove', handleDrag);
+        window.addEventListener('mouseup', stopDrag);
+        
+        // --- Resizer Logic ---
+        const initResizer = () => {
+            let startY, startTopHeight, startBottomHeight;
+
+            const onMouseMove = (e) => {
+                const dy = e.clientY - startY;
+                const newTopHeight = startTopHeight + dy;
+                const newBottomHeight = startBottomHeight - dy;
+                const minHeight = 100; // Minimum height for each panel
+
+                if (newTopHeight > minHeight && newBottomHeight > minHeight) {
+                    productsModule.style.flexBasis = `${newTopHeight}px`;
+                    productsModule.style.flexGrow = '0';
+                    aiChatModule.style.flexBasis = `${newBottomHeight}px`;
+                    aiChatModule.style.flexGrow = '0';
+                }
+            };
+
+            const onMouseUp = () => {
+                document.removeEventListener('mousemove', onMouseMove);
+                document.removeEventListener('mouseup', onMouseUp);
+            };
+
+            resizer.addEventListener('mousedown', (e) => {
+                e.preventDefault();
+                startY = e.clientY;
+                startTopHeight = productsModule.offsetHeight;
+                startBottomHeight = aiChatModule.offsetHeight;
+                document.addEventListener('mousemove', onMouseMove);
+                document.addEventListener('mouseup', onMouseUp);
+            });
+        };
+        initResizer();
+
+        // Status Check Interval
+        setInterval(async () => {
+            if (!currentJobId) return;
+            try {
+                const statusResponse = await fetch(`/api/status/${currentJobId}`);
+                const statusData = await statusResponse.json();
+                if (statusData.progress && statusData.progress !== terminal.textContent.split('\n').slice(-2)[0].split('] ').slice(-1)[0]) { logToTerminal(statusData.progress); }
+                if (statusData.status === 'completed' || statusData.status === 'failed') {
+                    
+                    if(loopAnimation) loopAnimation.stop();
+                    if(clipItAnimLoop) clipItAnimLoop.style.display = 'none';
+                    if(clipItAnimClick) clipItAnimClick.style.display = 'block';
+
+                    const resetButtonAnimation = () => {
+                        if(clickAnimation) {
+                            clickAnimation.setDirection(-1);
+                            clickAnimation.play();
+                            const onReverseComplete = () => {
+                                clickAnimation.setDirection(1);
+                                if(clipItBtnContainer) clipItBtnContainer.style.pointerEvents = 'auto';
+                                isClipping = false;
+                                clickAnimation.removeEventListener('complete', onReverseComplete);
+                            };
+                            clickAnimation.addEventListener('complete', onReverseComplete);
+                        } else {
+                            if(clipItBtnContainer) clipItBtnContainer.style.pointerEvents = 'auto';
+                            isClipping = false;
+                        }
+                    };
+
+                    if (statusData.status === 'completed') {
+                        if (Math.random() < 0.1 && celebrationAnimation) {
+                            celebrationContainer.style.display = 'flex';
+                            celebrationAnimation.goToAndPlay(0, true);
+
+                            const onCelebrationComplete = () => {
+                                celebrationContainer.style.display = 'none';
+                                resetButtonAnimation();
+                                celebrationAnimation.removeEventListener('complete', onCelebrationComplete);
+                            };
+                            celebrationAnimation.addEventListener('complete', onCelebrationComplete);
+                        } else {
+                            resetButtonAnimation();
+                        }
+                    } else { // Failed case
+                        resetButtonAnimation();
+                    }
+                    
+                    if (statusData.result) logToTerminal(`[${statusData.status.toUpperCase()}] ${statusData.result}`);
+                    if (statusData.error) logToTerminal(`[${statusData.status.toUpperCase()}] ERROR: ${statusData.error}`);
+                    if (statusData.status === 'completed' && statusData.completed_clips && statusData.completed_clips.length > 0) {
+                        const newClips = statusData.completed_clips.map(c => ({...c, jobId: currentJobId}));
+                        completedClips.push(...newClips);
+                        renderCompletedClips();
+                    }
+                    clipsToExport = [];
+                    renderSelectedClipsList();
+                    currentJobId = null;
+                }
+            } catch (error) {
+                logToTerminal(`Error checking status: ${error.message}`);
+                isClipping = false;
+                if(clipItBtnContainer) clipItBtnContainer.style.pointerEvents = 'auto';
+            }
+        }, 2000);
+
+        // --- AI Assistant Logic ---
+        const addChatMessage = (sender, message, type = 'normal') => {
+            if (type === 'thinking') {
+                const existingThinking = aiChatMessages.querySelector('.thinking');
+                if (existingThinking) existingThinking.remove();
+            } else {
+                const existingThinking = aiChatMessages.querySelector('.thinking');
+                if (existingThinking) existingThinking.remove();
+            }
+
+            const messageWrapper = document.createElement('div');
+            const messageEl = document.createElement('div');
+            messageEl.className = 'p-2 rounded-lg max-w-xs break-words';
+
+            if (sender === 'AI') {
+                messageWrapper.className = 'flex justify-start';
+                messageEl.className += ' bg-gray-700';
+                if (type === 'thinking') {
+                    messageEl.innerHTML = `<span class="italic text-gray-400">${message}</span>`;
+                    messageEl.classList.add('thinking');
+                } else {
+                    messageEl.textContent = message;
+                }
+            } else { // User
+                messageWrapper.className = 'flex justify-end';
+                messageEl.className += ' bg-blue-800 text-white';
+                messageEl.textContent = message;
+            }
+            
+            const placeholder = aiChatMessages.querySelector('p.text-gray-500');
+            if (placeholder) placeholder.remove();
+
+            messageWrapper.appendChild(messageEl);
+            aiChatMessages.appendChild(messageWrapper);
+            aiChatMessages.scrollTop = aiChatMessages.scrollHeight;
+        };
+
+        const analyzeCurrentFrame = async () => {
+            if (!totalDuration) {
+                logToTerminal("AI Error: Load a video first.");
+                return;
+            }
+            
+            addChatMessage('AI', 'Capturing frame...', 'thinking');
+
+            const canvas = document.createElement('canvas');
+            canvas.width = videoPlayer.videoWidth;
+            canvas.height = videoPlayer.videoHeight;
+            const ctx = canvas.getContext('2d');
+            ctx.drawImage(videoPlayer, 0, 0, canvas.width, canvas.height);
+            const imageDataUrl = canvas.toDataURL('image/jpeg', 0.8);
+
+            addChatMessage('AI', 'Analyzing frame with AI...', 'thinking');
+
+            try {
+                const response = await fetch('/api/analyze_frame', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ image: imageDataUrl })
+                });
+                if (!response.ok) throw new Error(`Server returned ${response.status}`);
+                const data = await response.json();
+                addChatMessage('AI', data.analysis);
+            } catch (error) {
+                addChatMessage('AI', `Analysis failed: ${error.message}`);
+                logToTerminal(`AI analysis failed: ${error.message}`);
+            }
+        };
+
+        const handleUserChat = async () => {
+            const userMessage = aiChatInput.value.trim();
+            if (userMessage === '') return;
+
+            addChatMessage('User', userMessage);
+            aiChatInput.value = '';
+            addChatMessage('AI', 'Thinking...', 'thinking');
+
+            try {
+                 const response = await fetch('/api/chat', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ message: userMessage })
+                });
+                if (!response.ok) throw new Error(`Server returned ${response.status}`);
+                const data = await response.json();
+                addChatMessage('AI', data.response);
+            } catch (error) {
+                addChatMessage('AI', `Chat error: ${error.message}`);
+            }
+        };
+        
+        const handleAiProductSearch = async () => {
+            const prompt = aiPromptInput.value.trim();
+            if (!prompt && !selectedAiImage) {
+                logToTerminal("AI Search Error: Please provide a prompt or an image.");
+                return;
+            }
+        
+            aiPromptModal.classList.add('hidden'); 
+        
+            if (!csvPath || !transcriptPath) {
+                logToTerminal("AI Search Error: Please load both sales and transcript CSVs first.");
+                return;
+            }
+            
+            interactiveList.innerHTML = `<div class="p-4 text-center text-gray-400 text-sm">AI is searching for moments...</div>`;
+        
+            try {
+                const response = await fetch('/api/ai_find_moments', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ 
+                        prompt: prompt,
+                        image: selectedAiImage,
+                        sales_csv_path: csvPath,
+                        transcript_csv_path: transcriptPath
+                    })
+                });
+                if (!response.ok) {
+                    const err = await response.json();
+                    throw new Error(err.error || 'Server error');
+                }
+                const foundProducts = await response.json();
+                logToTerminal(`AI found ${foundProducts.length} potential moments.`);
+                renderProductList(foundProducts);
+        
+            } catch(error) {
+                logToTerminal(`AI Search failed: ${error.message}`);
+                interactiveList.innerHTML = `<div class="p-4 text-center text-red-400 text-sm">AI search failed. Please try again.</div>`;
+            } finally {
+                resetImageUpload();
+            }
+        };
+        
+        const resetImageUpload = () => {
+            aiImageInput.value = '';
+            selectedAiImage = null;
+            imagePreview.src = '';
+            imagePreviewContainer.classList.add('hidden');
+            imagePromptText.classList.remove('hidden');
+        };
+
+        aiSearchBtn.addEventListener('click', () => {
+            aiPromptModal.classList.remove('hidden');
+            aiPromptInput.focus();
+        });
+        
+        closeAiPromptModalBtn.addEventListener('click', () => {
+            aiPromptModal.classList.add('hidden');
+            resetImageUpload();
+        });
+
+        aiPromptModal.addEventListener('click', (e) => {
+            if (e.target === aiPromptModal) {
+                aiPromptModal.classList.add('hidden');
+                resetImageUpload();
+            }
+        });
+        
+        runAiSearchBtn.addEventListener('click', handleAiProductSearch);
+        aiPromptInput.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault();
+                handleAiProductSearch();
+            }
+        });
+
+        const handleImageFile = (file) => {
+            if (file && file.type.startsWith('image/')) {
+                const reader = new FileReader();
+                reader.onload = (e) => {
+                    selectedAiImage = e.target.result;
+                    imagePreview.src = selectedAiImage;
+                    imagePromptText.classList.add('hidden');
+                    imagePreviewContainer.classList.remove('hidden');
+                };
+                reader.readAsDataURL(file);
+            }
+        };
+
+        imageDropArea.addEventListener('click', () => aiImageInput.click());
+        aiImageInput.addEventListener('change', (e) => handleImageFile(e.target.files[0]));
+        ['dragenter', 'dragover', 'dragleave', 'drop'].forEach(eventName => {
+            imageDropArea.addEventListener(eventName, (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+            });
+        });
+        ['dragenter', 'dragover'].forEach(eventName => {
+            imageDropArea.addEventListener(eventName, () => imageDropArea.classList.add('border-yellow-400'));
+        });
+        ['dragleave', 'drop'].forEach(eventName => {
+            imageDropArea.addEventListener(eventName, () => imageDropArea.classList.remove('border-yellow-400'));
+        });
+        imageDropArea.addEventListener('drop', (e) => handleImageFile(e.dataTransfer.files[0]));
+        removeImageBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            resetImageUpload();
+        });
+
+        aiAnalyzeBtn.addEventListener('click', analyzeCurrentFrame);
+        aiChatInput.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter') {
+                handleUserChat();
+            }
+        });
+
+        // Main Page Navigation
+        clipitNavBtn.addEventListener('click', () => navigatePage('clipit'));
+        editorNavBtn.addEventListener('click', () => navigatePage('editor'));
+    </script>
+</body>
+</html>
+

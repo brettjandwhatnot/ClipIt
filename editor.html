@@ -1,0 +1,387 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Clip It! - Editor</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        body { font-family: 'Inter', sans-serif; background-color: #111111; color: #FFFFF4; }
+        .panel-bg { background-color: #282527; }
+        .accent-text { color: #FFE414; }
+        .input-bg { background-color: #383537; }
+        .separator { border-color: #4A4A4A; }
+        ::-webkit-scrollbar { width: 8px; }
+        ::-webkit-scrollbar-track { background: #282527; }
+        ::-webkit-scrollbar-thumb { background: #555; border-radius: 4px; }
+        ::-webkit-scrollbar-thumb:hover { background: #777; }
+        .interactive-item:hover { background-color: #4a4a4a; }
+        .main-nav-btn { padding: 0.75rem 1.5rem; font-weight: 600; color: #a0a0a0; border-bottom: 3px solid transparent; transition: all 0.2s ease-in-out; }
+        .main-nav-btn:hover { color: #ffffff; }
+        .main-nav-btn.active { color: #FFE414; border-bottom-color: #FFE414; }
+
+        #transcript-editor .word {
+            cursor: pointer;
+            transition: color 0.2s, text-decoration 0.2s;
+            padding: 0 2px;
+        }
+        #transcript-editor .word:hover {
+            background-color: #4a4a4a;
+            border-radius: 2px;
+        }
+        #transcript-editor .word.cut {
+            color: #888;
+            text-decoration: line-through;
+        }
+        
+        #editor-timeline-container {
+            position: relative;
+            background-color: #1a1a1a;
+            border-radius: 4px;
+            padding: 8px;
+            user-select: none;
+        }
+        #timeline-header {
+            position: relative;
+            height: 20px;
+            margin-bottom: 4px;
+        }
+        .timeline-tick {
+            position: absolute;
+            bottom: 0;
+            width: 1px;
+            height: 5px;
+            background-color: #777;
+        }
+        .timeline-label {
+            position: absolute;
+            top: 0;
+            transform: translateX(-50%);
+            font-size: 10px;
+            color: #aaa;
+        }
+        #frame-preview-container {
+            display: flex;
+            gap: 2px;
+            height: 50px;
+            overflow: hidden;
+            border-radius: 2px;
+        }
+        .frame-preview {
+            height: 100%;
+            background-color: #333;
+        }
+        #waveform-canvas {
+            width: 100%;
+            height: 60px;
+            background-color: #383537;
+            border-radius: 2px;
+            margin-top: 4px;
+        }
+        #editor-playhead {
+            position: absolute;
+            top: 0;
+            left: 0; 
+            width: 2px;
+            height: 100%;
+            background-color: #FFE414;
+            pointer-events: none;
+            z-index: 10;
+        }
+        .splice-handle {
+            position: absolute;
+            top: 20px; 
+            width: 3px;
+            height: calc(100% - 20px);
+            background-color: red;
+            cursor: ew-resize;
+            z-index: 11;
+        }
+    </style>
+</head>
+<body class="overflow-hidden">
+    <div class="h-screen w-screen bg-black flex flex-col">
+        <!-- Main Navigation -->
+        <nav class="flex-shrink-0 bg-[#1a1a1a] flex justify-center border-b border-[#4A4A4A]">
+            <button id="clipit-nav-btn" class="main-nav-btn">ClipIt</button>
+            <button id="editor-nav-btn" class="main-nav-btn active">Editor</button>
+        </nav>
+
+        <!-- Editor Page Content -->
+        <main class="flex-grow overflow-hidden">
+            <div class="flex h-full p-4 space-x-4">
+                <!-- Left Panel: Clips and Transcript -->
+                <div class="w-1/3 flex flex-col space-y-4">
+                    <div class="panel-bg rounded-lg p-4 flex flex-col h-2/3">
+                        <h2 class="text-lg font-semibold mb-2 flex-shrink-0">Transcript Editor</h2>
+                        <div id="transcript-editor" class="flex-grow overflow-y-auto input-bg p-2 rounded-md text-sm leading-relaxed">
+                            <p class="text-gray-500 text-center p-4">Select a clip to view its transcript.</p>
+                        </div>
+                        <div class="flex space-x-2 pt-2 flex-shrink-0">
+                            <button id="remove-pauses-btn" class="input-bg text-white py-2 px-4 rounded-md text-sm font-semibold transition-colors hover:bg-[#ffe414] hover:text-main-dark">Remove Pauses</button>
+                            <button id="remove-fillers-btn" class="input-bg text-white py-2 px-4 rounded-md text-sm font-semibold transition-colors hover:bg-[#ffe414] hover:text-main-dark">Cut Filler Words</button>
+                        </div>
+                    </div>
+                    <div class="panel-bg rounded-lg p-4 flex flex-col h-1/3">
+                        <h2 class="text-lg font-semibold mb-2 flex-shrink-0">Clips to Edit</h2>
+                        <div id="editor-clips-list" class="flex-grow overflow-y-auto input-bg p-2 rounded-md">
+                            <p class="text-gray-500 text-center p-4">No completed clips yet.</p>
+                        </div>
+                    </div>
+                </div>
+                <!-- Right Panel: Editor -->
+                <div class="w-2/3 flex flex-col space-y-4">
+                    <!-- Video Player -->
+                    <div id="editor-video-container" class="panel-bg rounded-lg flex-grow relative bg-black flex items-center justify-center overflow-hidden">
+                       <video id="editor-video-player" class="absolute w-full h-full object-contain" controls style="display: none;"></video>
+                       <div id="editor-video-placeholder" class="text-gray-400 text-lg">Select a clip to edit</div>
+                    </div>
+                    <!-- Timeline -->
+                    <div id="editor-timeline-container" class="panel-bg rounded-lg p-4 flex-shrink-0">
+                        <div id="timeline-header"></div>
+                        <div id="frame-preview-container"></div>
+                        <canvas id="waveform-canvas"></canvas>
+                        <div id="editor-playhead"></div>
+                    </div>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <script>
+        const getEl = (id) => document.getElementById(id);
+        const clipitNavBtn = getEl('clipit-nav-btn');
+        const editorNavBtn = getEl('editor-nav-btn');
+        const editorClipsList = getEl('editor-clips-list');
+        const editorVideoPlayer = getEl('editor-video-player');
+        const editorVideoPlaceholder = getEl('editor-video-placeholder');
+        const transcriptEditor = getEl('transcript-editor');
+        const editorTimelineContainer = getEl('editor-timeline-container');
+        const timelineHeader = getEl('timeline-header');
+        const framePreviewContainer = getEl('frame-preview-container');
+        const waveformCanvas = getEl('waveform-canvas');
+        const editorPlayhead = getEl('editor-playhead');
+        let currentClipDuration = 0;
+
+        const navigatePage = (pageName) => {
+            if (pageName === 'clipit') {
+                window.location.href = '/index.html';
+            } else {
+                window.location.href = '/editor.html';
+            }
+        };
+
+        const renderEditorClipsList = () => {
+            editorClipsList.innerHTML = ''; 
+            const completedClips = JSON.parse(localStorage.getItem('completedClips') || '[]');
+
+            if (completedClips.length === 0) {
+                editorClipsList.innerHTML = `<p class="text-gray-500 text-center p-4">No completed clips to edit.</p>`;
+                return;
+            }
+
+            const fragment = document.createDocumentFragment();
+            completedClips.forEach((clip, index) => {
+                const videoFilename = clip.video.split(/\/|\\/).pop();
+                const displayName = videoFilename.replace(/\.mp4$/, '');
+                const jobIdForClip = clip.jobId;
+
+                const clipItem = document.createElement('div');
+                clipItem.className = 'interactive-item p-2 border-b border-gray-700 cursor-pointer text-sm';
+                clipItem.dataset.clipIndex = index;
+                if(jobIdForClip) {
+                    clipItem.dataset.videoSrc = `/api/preview/${jobIdForClip}/${encodeURIComponent(videoFilename)}`;
+                }
+                
+                clipItem.innerHTML = `<span class="truncate font-medium">${displayName}</span>`;
+                fragment.appendChild(clipItem);
+            });
+            editorClipsList.appendChild(fragment);
+        };
+
+        const renderTranscript = (transcriptLines) => {
+            transcriptEditor.innerHTML = '';
+            if (!transcriptLines || transcriptLines.length === 0) {
+                transcriptEditor.innerHTML = `<p class="text-gray-500 text-center p-4">No transcript available for this clip.</p>`;
+                return;
+            }
+
+            const fragment = document.createDocumentFragment();
+            transcriptLines.forEach(line => {
+                const p = document.createElement('p');
+                line.text.split(' ').forEach(word => {
+                    if (word) {
+                        const wordSpan = document.createElement('span');
+                        wordSpan.className = 'word';
+                        wordSpan.textContent = word + ' ';
+                        wordSpan.addEventListener('click', () => {
+                            wordSpan.classList.toggle('cut');
+                        });
+                        p.appendChild(wordSpan);
+                    }
+                });
+                fragment.appendChild(p);
+            });
+            transcriptEditor.appendChild(fragment);
+        };
+        
+        const fetchTranscriptForClip = async (clip) => {
+            const transcriptPath = localStorage.getItem('transcriptPath');
+            if (!transcriptPath || clip.start === undefined || clip.end === undefined) {
+                renderTranscript(null);
+                return;
+            }
+
+            transcriptEditor.innerHTML = `<p class="text-gray-500 text-center p-4">Loading transcript...</p>`;
+            
+            try {
+                const response = await fetch(`/api/csv_data?path=${encodeURIComponent(transcriptPath)}&type=transcript`);
+                if (!response.ok) throw new Error('Failed to fetch full transcript');
+                
+                const fullTranscript = await response.json();
+                const parseTimeToSeconds = (timeStr) => { if (!timeStr) return null; const parts = timeStr.split(':').map(p => parseFloat(p.replace(',', '.'))); if (parts.some(isNaN)) return null; let seconds = 0; if (parts.length === 3) seconds = parts[0]*3600+parts[1]*60+parts[2]; else if (parts.length === 2) seconds = parts[0]*60+parts[1]; else if (parts.length === 1) seconds = parts[0]; return seconds; };
+
+                const clipTranscript = fullTranscript.filter(line => {
+                    const lineStartSec = parseTimeToSeconds(line.start);
+                    return lineStartSec >= clip.start && lineStartSec <= clip.end;
+                });
+                
+                renderTranscript(clipTranscript);
+
+            } catch(error) {
+                console.error("Failed to get transcript for clip:", error);
+                transcriptEditor.innerHTML = `<p class="text-red-500 text-center p-4">Could not load transcript.</p>`;
+            }
+        };
+
+        const drawWaveform = async (videoSrc) => {
+            const ctx = waveformCanvas.getContext('2d');
+            const width = waveformCanvas.clientWidth;
+            const height = waveformCanvas.clientHeight;
+            waveformCanvas.width = width;
+            waveformCanvas.height = height;
+            ctx.clearRect(0, 0, width, height);
+
+            try {
+                const response = await fetch(videoSrc.replace('/preview/', '/waveform/'));
+                if (!response.ok) throw new Error('Failed to fetch waveform data');
+                const peaks = await response.json();
+
+                ctx.fillStyle = '#FFE414';
+                const barWidth = width / peaks.length;
+                peaks.forEach((peak, i) => {
+                    const barHeight = peak * height;
+                    ctx.fillRect(i * barWidth, (height - barHeight) / 2, 1, barHeight);
+                });
+            } catch (error) {
+                console.error("Error drawing waveform:", error);
+                ctx.fillStyle = '#555';
+                ctx.font = '12px Inter';
+                ctx.textAlign = 'center';
+                ctx.fillText('Waveform data unavailable', width / 2, height / 2);
+            }
+        };
+        
+        const generateFramePreviews = async () => {
+            framePreviewContainer.innerHTML = `<p class="text-gray-500 text-xs w-full text-center">Generating frame previews...</p>`;
+            // In a real app, this would be a backend process. Here, we simulate it with placeholders.
+            const numFrames = 20;
+            const fragment = document.createDocumentFragment();
+            for (let i = 0; i < numFrames; i++) {
+                const img = document.createElement('img');
+                const timestamp = (currentClipDuration / numFrames) * i;
+                img.className = 'frame-preview';
+                // Placeholder image. A real implementation would generate these via backend.
+                img.src = `https://placehold.co/100x50/282527/777?text=${timestamp.toFixed(1)}s`;
+                fragment.appendChild(img);
+            }
+            framePreviewContainer.innerHTML = '';
+            framePreviewContainer.appendChild(fragment);
+        };
+        
+        const updateEditorTimeline = () => {
+            timelineHeader.innerHTML = '';
+            const width = timelineHeader.clientWidth;
+            const interval = currentClipDuration > 10 ? 1 : 0.5;
+
+            for (let i = 0; i <= currentClipDuration; i += interval) {
+                const x = (i / currentClipDuration) * width;
+                const tick = document.createElement('div');
+                tick.className = 'timeline-tick';
+                tick.style.left = `${x}px`;
+                timelineHeader.appendChild(tick);
+
+                if (i % (interval * 2) === 0) {
+                     const label = document.createElement('span');
+                     label.className = 'timeline-label';
+                     label.textContent = i.toFixed(1);
+                     label.style.left = `${x}px`;
+                     timelineHeader.appendChild(label);
+                }
+            }
+        };
+
+        const addSpliceHandle = (percent) => {
+            const handle = document.createElement('div');
+            handle.className = 'splice-handle';
+            handle.style.left = `${percent}%`;
+            editorTimelineContainer.appendChild(handle);
+            // Add drag logic here in a real implementation
+        };
+        
+        document.addEventListener('DOMContentLoaded', () => {
+            renderEditorClipsList();
+        });
+
+        clipitNavBtn.addEventListener('click', () => navigatePage('clipit'));
+        editorNavBtn.addEventListener('click', () => navigatePage('editor'));
+
+        editorClipsList.addEventListener('click', (e) => {
+            const clipItem = e.target.closest('.interactive-item');
+            if (clipItem) {
+                const videoSrc = clipItem.dataset.videoSrc;
+                const clipIndex = parseInt(clipItem.dataset.clipIndex, 10);
+                const completedClips = JSON.parse(localStorage.getItem('completedClips') || '[]');
+                const selectedClip = completedClips[clipIndex];
+
+                if (videoSrc) {
+                    editorVideoPlaceholder.style.display = 'none';
+                    editorVideoPlayer.style.display = 'block';
+                    editorVideoPlayer.src = videoSrc;
+                    editorVideoPlayer.load(); // Important to load metadata
+                    editorVideoPlayer.addEventListener('loadedmetadata', () => {
+                        currentClipDuration = editorVideoPlayer.duration;
+                        updateEditorTimeline();
+                        generateFramePreviews();
+                        drawWaveform(videoSrc);
+                    }, { once: true });
+                    editorVideoPlayer.play();
+                }
+                
+                if(selectedClip) {
+                    fetchTranscriptForClip(selectedClip);
+                }
+
+                document.querySelectorAll('#editor-clips-list .interactive-item').forEach(item => item.classList.remove('bg-gray-600'));
+                clipItem.classList.add('bg-gray-600');
+            }
+        });
+        
+        editorVideoPlayer.addEventListener('timeupdate', () => {
+            if (currentClipDuration > 0) {
+                const percent = (editorVideoPlayer.currentTime / currentClipDuration) * 100;
+                editorPlayhead.style.left = `${percent}%`;
+            }
+        });
+
+        editorTimelineContainer.addEventListener('dblclick', (e) => {
+            const rect = editorTimelineContainer.getBoundingClientRect();
+            const x = e.clientX - rect.left;
+            const percent = (x / rect.width) * 100;
+            addSpliceHandle(percent);
+        });
+    </script>
+</body>
+</html>
+

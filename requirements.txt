@@ -1,0 +1,4 @@
+pywebview
+Flask
+requests
+yt-dlp
