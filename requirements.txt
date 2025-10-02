@@ -2,3 +2,4 @@ pywebview
 Flask
 requests
 yt-dlp
+numpy
