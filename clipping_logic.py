@@ -2,20 +2,17 @@ import sys
 import os
 import subprocess
 import re
-import json
-import csv
 import shlex
-import threading
+import logging
+
+# --- Helper Functions ---
 
 def get_ffmpeg_path():
+    """Determines the correct path for the ffmpeg executable."""
     if getattr(sys, 'frozen', False):
-        if sys.platform == 'win32':
-            ffmpeg_exe = 'ffmpeg.exe'
-        else:
-            ffmpeg_exe = 'ffmpeg'
-        return os.path.join(sys._MEIPASS, ffmpeg_exe)
-    else:
-        return 'ffmpeg'
+        base_path = sys._MEIPASS
+        return os.path.join(base_path, 'ffmpeg.exe' if sys.platform == 'win32' else 'ffmpeg')
+    return 'ffmpeg'
 
 def to_seconds(time_str):
     if not time_str: return None
@@ -30,25 +27,9 @@ def to_seconds(time_str):
 def sanitize_filename(name):
     return re.sub(r'[^\w\-_\. ]', '_', str(name))
 
-def parse_curl_command(source_input):
-    cleaned_string = re.sub(r'\\\s*\n?', ' ', source_input.strip())
-    parts = shlex.split(cleaned_string)
-    url = next((arg for arg in parts[1:] if arg.startswith('http')), None)
-    if not url:
-        raise ValueError("Could not extract URL from source cURL command.")
-    
-    headers = {}
-    i = 0
-    while i < len(parts):
-        if parts[i] in ('-H', '--header'):
-            key, value = parts[i + 1].split(':', 1)
-            headers[key.strip()] = value.strip()
-            i += 2
-        else:
-            i += 1
-    return url, headers
+# --- FFMPEG Execution ---
 
-def run_single_ffmpeg_clip(clip_request, url, headers, output_folder):
+def run_single_ffmpeg_clip(clip_request, url, headers, output_folder, job_id, jobs):
     start_sec = clip_request['start']
     duration = clip_request['end'] - start_sec
     if duration <= 0:
@@ -69,23 +50,59 @@ def run_single_ffmpeg_clip(clip_request, url, headers, output_folder):
 
     ffmpeg_path = get_ffmpeg_path()
 
-    command = [ffmpeg_path, '-y']
+    command = [ffmpeg_path, '-y', '-progress', 'pipe:1']
     if headers:
         header_str = "".join([f"{key}: {value}\r\n" for key, value in headers.items()])
         command.extend(['-headers', header_str])
     
-    command.extend(['-ss', str(start_sec), '-i', url, '-t', str(duration), '-c', 'copy', '-movflags', '+faststart', output_filename])
+    # Updated command to re-encode for vertical 1080x1920 format
+    command.extend([
+        '-protocol_whitelist', 'file,http,https,tcp,tls,crypto', 
+        '-ss', str(start_sec), 
+        '-i', url, 
+        '-t', str(duration),
+        '-vf', 'scale=1080:-1,crop=1080:1920',  # Scale to 1080 width, then crop to 1920 height
+        '-c:v', 'libx264',                     # Re-encode with a standard codec
+        '-preset', 'veryfast',                 # Optimize for speed
+        '-crf', '23',                          # Good balance of quality and file size
+        '-c:a', 'copy',                        # Copy audio without re-encoding
+        '-movflags', '+faststart', 
+        output_filename
+    ])
     
     thumb_command = [ffmpeg_path, '-y']
     if headers:
         thumb_command.extend(['-headers', header_str])
-    thumb_command.extend(['-ss', str(thumbnail_time), '-i', url, '-vframes', '1', '-q:v', '2', thumbnail_filename])
+    thumb_command.extend(['-protocol_whitelist', 'file,http,https,tcp,tls,crypto', '-ss', str(thumbnail_time), '-i', url, '-vframes', '1', '-q:v', '2', thumbnail_filename])
 
+    process = None
     try:
-        result = subprocess.run(command, capture_output=True, text=True, check=False, encoding='utf-8', errors='ignore')
+        process = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, universal_newlines=True, encoding='utf-8', errors='ignore')
+        jobs[job_id]['process'] = process
+
+        for line in process.stdout:
+            if 'time=' in line:
+                match = re.search(r'time=(\d{2}):(\d{2}):(\d{2})\.(\d{2})', line)
+                if match:
+                    hours, mins, secs, _ = map(int, match.groups())
+                    elapsed_secs = hours * 3600 + mins * 60 + secs
+                    percent = min(100, (elapsed_secs / duration) * 100) if duration > 0 else 100
+                    jobs[job_id]['progress'] = f"Processing {safe_name}: {percent:.1f}%"
+        process.wait()
+
         final_filename_for_log = os.path.basename(output_filename)
-        if result.returncode != 0:
-            return (False, f"FAILED: {final_filename_for_log}. Error: {result.stderr[-500:]}", None, None)
+        
+        if jobs[job_id].get('status') == 'cancelling':
+            if os.path.exists(output_filename):
+                try:
+                    os.remove(output_filename)
+                    logging.info(f"Removed partial file on cancel: {output_filename}")
+                except OSError as e:
+                    logging.error(f"Error removing partial file: {e}")
+            return(False, f"CANCELLED: {final_filename_for_log}", None, None)
+
+        if process.returncode != 0:
+            return (False, f"FAILED: {final_filename_for_log}. FFMPEG exited with code {process.returncode}. Check logs.", None, None)
         
         thumb_result = subprocess.run(thumb_command, capture_output=True, text=True, check=False, encoding='utf-8', errors='ignore')
         if thumb_result.returncode != 0:
@@ -94,7 +111,12 @@ def run_single_ffmpeg_clip(clip_request, url, headers, output_folder):
         return (True, f"SUCCESS: {final_filename_for_log}", output_filename, thumbnail_filename)
     except Exception as e:
         final_filename_for_log = os.path.basename(output_filename)
+        if jobs[job_id].get('status') == 'cancelling':
+            return(False, f"CANCELLED: {final_filename_for_log}", None, None)
         return (False, f"CRITICAL FAIL: {final_filename_for_log}. Error: {e}", None, None)
+
+
+# --- Job Definition Logic ---
 
 def build_clip_jobs(params):
     all_jobs = []
@@ -126,18 +148,22 @@ def build_clip_jobs(params):
             
     return all_jobs
 
+# --- Main Process Function (Called by backend.py) ---
+
 def run_clipping_process(job_id, params, jobs):
     try:
         jobs[job_id]['status'] = 'running'
         jobs[job_id]['progress'] = 'Building clip list...'
-        jobs[job_id]['job_id'] = job_id
+        jobs[job_id]['job_id'] = job_id 
 
         clip_requests = build_clip_jobs(params)
         if not clip_requests:
             raise ValueError("No valid clipping tasks were generated from the input.")
 
-        source_url, headers = parse_curl_command(params.get('source_url', ''))
+        source_url = params['resolved_url']
+        headers = params['resolved_headers']
         output_folder = params.get('output_folder')
+        
         if not output_folder or not os.path.isdir(output_folder):
             raise ValueError("A valid output folder must be selected.")
         
@@ -150,26 +176,36 @@ def run_clipping_process(job_id, params, jobs):
         completed_clip_paths = []
 
         for i, request in enumerate(clip_requests):
-            jobs[job_id]['progress'] = f"Clipping {i+1}/{total_clips}: {request['name']}"
-            was_successful, result_message, clip_path, thumb_path = run_single_ffmpeg_clip(request, source_url, headers, output_folder)
+            if jobs[job_id].get('status') == 'cancelling':
+                jobs[job_id]['status'] = 'cancelled'
+                jobs[job_id]['result'] = f"Job cancelled by user. {completed_count}/{total_clips} clips created."
+                break
+
+            jobs[job_id]['progress'] = f"Queueing {i+1}/{total_clips}: {request['name']}"
+            was_successful, result_message, clip_path, thumb_path = run_single_ffmpeg_clip(request, source_url, headers, output_folder, job_id, jobs)
             
             if was_successful:
                 completed_count += 1
                 completed_clip_paths.append({
                     'video': clip_path, 
                     'thumbnail': thumb_path,
-                    'start': request['start'],
-                    'end': request['end']
+                    'start_time_sec': request['start']
                 })
             
             print(f"Job {job_id}: {result_message}")
-            
-        jobs[job_id]['status'] = 'completed'
-        jobs[job_id]['result'] = f"Clipping complete. Successfully created {completed_count}/{total_clips} clips."
-        jobs[job_id]['completed_clips'] = completed_clip_paths
+
+        if jobs[job_id].get('status') != 'cancelled':
+            jobs[job_id]['status'] = 'completed'
+            jobs[job_id]['result'] = f"Clipping complete. Successfully created {completed_count}/{total_clips} clips."
+            jobs[job_id]['completed_clips'] = completed_clip_paths
 
     except Exception as e:
         error_message = f"Failed: {e}"
         jobs[job_id]['status'] = 'failed'
         jobs[job_id]['error'] = error_message
         print(f"Job {job_id} FAILED: {error_message}")
+    finally:
+        if 'process' in jobs[job_id]:
+            del jobs[job_id]['process']
+        logging.info(f"Job {job_id} finished with status: {jobs[job_id].get('status')}")
+
