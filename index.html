@@ -48,6 +48,7 @@
         .folder-header .delete-folder-btn:hover { color: #ef4444; }
         #resizer { flex-shrink: 0; cursor: row-resize; background-color: #4a4a4a; height: 8px; border-top: 1px solid #5a5a5a; border-bottom: 1px solid #5a5a5a; }
         #resizer:hover { background-color: #FFE414; }
+        button:disabled { cursor: not-allowed; opacity: 0.6; }
     </style>
 </head>
 <body class="overflow-hidden">
@@ -204,9 +205,14 @@
                         <button id="select-transcript-btn" class="bg-gray-600 py-2 px-4 rounded-md hover:bg-gray-500 whitespace-nowrap">Load</button>
                      </div>
                      <div class="flex space-x-2 mt-2 justify-end">
-                        <button id="generate-transcript-btn" class="accent-bg text-dark font-bold py-2 px-4 rounded-md hover:bg-yellow-300 transition-colors whitespace-nowrap">Generate Full</button>
-                        <button id="generate-partial-transcript-btn" class="accent-bg text-dark font-bold py-2 px-4 rounded-md hover:bg-yellow-300 transition-colors whitespace-nowrap" disabled>From Sales</button>
+                        <button id="generate-transcript-btn" class="accent-bg text-dark font-bold py-2 px-4 rounded-md hover:bg-yellow-300 transition-colors whitespace-nowrap">Generate Transcript</button>
                      </div>
+                      <div id="transcript-progress-container" class="hidden space-y-2 mt-2">
+                        <div id="transcript-progress-text" class="text-sm text-center text-yellow-400">Starting...</div>
+                        <div class="w-full bg-gray-700 rounded-full h-2.5">
+                            <div id="transcript-progress-bar" class="bg-yellow-400 h-2.5 rounded-full transition-all duration-500" style="width: 5%"></div>
+                        </div>
+                    </div>
                 </div>
                  <div>
                     <label class="font-medium text-gray-300">Output Folder</label>
@@ -329,7 +335,9 @@
               playPauseBtn = getEl('play-pause-btn'), playIcon = getEl('play-icon'), pauseIcon = getEl('pause-icon'),
               rewindBtn = getEl('rewind-btn'), forwardBtn = getEl('forward-btn'), timecodeContainer = getEl('timecode-container'), timecode = getEl('timecode'),
               generateTranscriptBtn = getEl('generate-transcript-btn'),
-              generatePartialTranscriptBtn = getEl('generate-partial-transcript-btn'),
+              transcriptProgressContainer = getEl('transcript-progress-container'),
+              transcriptProgressText = getEl('transcript-progress-text'),
+              transcriptProgressBar = getEl('transcript-progress-bar'),
               promptSettingsModal = getEl('prompt-settings-modal'),
               closePromptModalBtn = getEl('close-prompt-modal-btn'),
               defaultPromptInput = getEl('default-prompt-input'),
@@ -947,7 +955,7 @@
             }
             
             item.innerHTML = `
-                <div class="delete-btn">×</div>
+                <div class="delete-btn">Ã—</div>
                 <img src="/api/preview/${jobIdForClip}/${encodeURIComponent(thumbFilename)}" alt="Clip thumbnail for ${displayName}" onerror="this.src='https://placehold.co/160/212121/777?text=No+Thumb'">
                 <span>${displayName}</span>
             `;
@@ -1027,7 +1035,7 @@
             header.innerHTML = `
                 <svg fill="currentColor" viewBox="0 0 20 20"><path d="M2 6a2 2 0 012-2h5l2 2h5a2 2 0 012 2v6a2 2 0 01-2 2H4a2 2 0 01-2-2V6z"></path></svg>
                 <span>${folder.name}</span>
-                <button class="delete-folder-btn">×</button>
+                <button class="delete-folder-btn">Ã—</button>
             `;
             
             const content = document.createElement('div');
@@ -1137,12 +1145,12 @@
                 return;
             }
 
-            if (!sourceUrlInput.value || !outputFolder || !csvPath || !transcriptPath) {
-                logToTerminal("Error: Please set up all inputs (URL, Sales, Transcript, Output Folder) before clipping.");
-                return;
-            }
-
             if (clipsToExport.length === 0) {
+                 if (!sourceUrlInput.value || !outputFolder || !csvPath || !transcriptPath) {
+                    logToTerminal("Error: AI clipping requires all inputs (URL, Sales, Transcript, Output Folder).");
+                    return;
+                }
+
                 logToTerminal("Clip queue is empty. Searching for top moments with AI...");
                 isClipping = true;
                 clipItBtnContainer.style.pointerEvents = 'none';
@@ -1215,6 +1223,11 @@
                     await resetButtonAnimation();
                 }
             } else {
+                if (!sourceUrlInput.value || !outputFolder) {
+                    logToTerminal("Error: Please set up Source URL and Output Folder before clipping.");
+                    return;
+                }
+                
                 logToTerminal(`Starting export job for ${clipsToExport.length} clips...`);
                 isClipping = true;
                 cancelClipBtn.classList.remove('hidden');
@@ -1292,11 +1305,7 @@
 
         function updateTranscriptButtonStates() {
             const hasUrl = sourceUrlInput.value.trim() !== '';
-            const hasSales = csvPath !== '';
-            const hasTranscript = transcriptPath !== '';
-
             generateTranscriptBtn.disabled = !hasUrl;
-            generatePartialTranscriptBtn.disabled = !hasUrl || !hasSales || hasTranscript;
         }
         
         async function loadFileData(path, type) {
@@ -1338,19 +1347,19 @@
         
         // --- Event Listeners ---
         document.addEventListener('DOMContentLoaded', async () => {
-            if (clickAnimationData && Object.keys(clickAnimationData).length > 0) {
+            if (typeof clickAnimationData === 'object' && Object.keys(clickAnimationData).length > 0) {
                 clickAnimation = lottie.loadAnimation({ container: clipItAnimClick, renderer: 'svg', loop: false, autoplay: false, animationData: clickAnimationData });
             }
-            if (loopAnimationData && Object.keys(loopAnimationData).length > 0) {
+            if (typeof loopAnimationData === 'object' && Object.keys(loopAnimationData).length > 0) {
                 loopAnimation = lottie.loadAnimation({ container: clipItAnimLoop, renderer: 'svg', loop: true, autoplay: false, animationData: loopAnimationData });
             }
-            if (aiClickAnimationData && Object.keys(aiClickAnimationData).length > 0) {
+            if (typeof aiClickAnimationData === 'object' && Object.keys(aiClickAnimationData).length > 0) {
                 aiClickAnimation = lottie.loadAnimation({ container: aiAnimClick, renderer: 'svg', loop: false, autoplay: false, animationData: aiClickAnimationData });
             }
-            if (aiLoopAnimationData && Object.keys(aiLoopAnimationData).length > 0) {
+            if (typeof aiLoopAnimationData === 'object' && Object.keys(aiLoopAnimationData).length > 0) {
                 aiLoopAnimation = lottie.loadAnimation({ container: aiAnimLoop, renderer: 'svg', loop: true, autoplay: false, animationData: aiLoopAnimationData });
             }
-            if (celebrationAnimationData && Object.keys(celebrationAnimationData).length > 0) {
+            if (typeof celebrationAnimationData === 'object' && Object.keys(celebrationAnimationData).length > 0) {
                 celebrationAnimation = lottie.loadAnimation({ container: celebrationContainer, renderer: 'svg', loop: false, autoplay: false, animationData: celebrationAnimationData });
             }
             
@@ -1445,11 +1454,14 @@
                 return;
             }
 
-            logToTerminal('Starting transcript generation... This may take several minutes depending on video length.');
+            logToTerminal('Starting transcript generation job...');
+            
+            transcriptProgressContainer.classList.remove('hidden');
+            transcriptProgressText.textContent = 'Queueing job...';
+            transcriptProgressBar.style.width = '5%';
             generateTranscriptBtn.disabled = true;
-            generatePartialTranscriptBtn.disabled = true;
-            generateTranscriptBtn.textContent = 'Generating...';
-
+            generateTranscriptBtn.textContent = 'Working...';
+            
             try {
                 const response = await fetch('/api/generate_transcript', {
                     method: 'POST',
@@ -1463,46 +1475,14 @@
                     throw new Error(data.error || `HTTP Error: ${response.status}`);
                 }
 
-                logToTerminal(`Transcript generated successfully. Loading file: ${data.filePath}`);
-                await loadFileData(data.filePath, 'transcript');
+                currentJobId = data.job_id;
+                logToTerminal(`Transcription job started with ID: ${currentJobId}`);
 
             } catch (error) {
-                logToTerminal(`Transcript generation failed: ${error.message}`);
-            } finally {
-                generateTranscriptBtn.textContent = 'Generate Full';
-                updateTranscriptButtonStates();
-            }
-        });
-
-        generatePartialTranscriptBtn.addEventListener('click', async () => {
-            const curlCommand = sourceUrlInput.value;
-            const salesPath = csvPath;
-            if (!curlCommand || !salesPath) {
-                logToTerminal('Error: Load a video and sales CSV first.');
-                return;
-            }
-
-            logToTerminal('Starting partial transcript generation...');
-            generatePartialTranscriptBtn.disabled = true;
-            generateTranscriptBtn.disabled = true;
-            generatePartialTranscriptBtn.textContent = 'Generating...';
-
-            try {
-                const response = await fetch('/api/generate_partial_transcript', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ source_url: curlCommand, sales_csv_path: salesPath })
-                });
-                const data = await response.json();
-                if (!response.ok) {
-                    throw new Error(data.error || `HTTP Error: ${response.status}`);
-                }
-                logToTerminal(`Partial transcript generated. Loading file: ${data.filePath}`);
-                await loadFileData(data.filePath, 'transcript');
-            } catch (error) {
-                logToTerminal(`Partial transcript failed: ${error.message}`);
-            } finally {
-                generatePartialTranscriptBtn.textContent = 'From Sales';
+                logToTerminal(`Transcript generation failed to start: ${error.message}`);
+                transcriptProgressContainer.classList.add('hidden');
+                generateTranscriptBtn.disabled = false;
+                generateTranscriptBtn.textContent = 'Generate Transcript';
                 updateTranscriptButtonStates();
             }
         });
@@ -1550,7 +1530,6 @@
         rewindBtn.addEventListener('click', () => videoPlayer.currentTime = Math.max(0, videoPlayer.currentTime - 10));
         forwardBtn.addEventListener('click', () => videoPlayer.currentTime = Math.min(totalDuration, videoPlayer.currentTime + 10));
         
-        // MODIFIED: In/Out buttons now modify the selected clip or set up a new one.
         setCustomStartBtn.addEventListener('click', () => {
             const selectedItem = selectedClipsList.querySelector('.clip-item.selected');
             if (selectedItem) {
@@ -1646,7 +1625,6 @@
             });
         });
 
-        // MODIFIED: This listener now handles item selection and seeking the video player.
         selectedClipsList.addEventListener('click', (e) => {
             const target = e.target;
             const clipItem = target.closest('.clip-item');
@@ -1654,7 +1632,6 @@
 
             const clipId = clipItem.dataset.clipId;
 
-            // Handle specific action buttons first
             if (target.closest('.rename-btn')) {
                 handleRenameClip(clipId);
                 return;
@@ -1674,13 +1651,11 @@
                 return;
             }
 
-            // If no button was clicked, handle selection of the item itself
             selectedClipsList.querySelectorAll('.clip-item').forEach(el => el.classList.remove('selected'));
             clipItem.classList.add('selected');
 
-            // NEW: Seek the video player to the start time of the selected clip
             const clipData = clipsToExport.find(c => c.id === clipId);
-            if (clipData && videoPlayer.readyState > 0) { // Using readyState is more robust
+            if (clipData && videoPlayer.readyState > 0) { 
                 logToTerminal(`Seeking player to ${clipData.start.toFixed(2)}s for clip "${clipData.originalName}"`);
                 videoPlayer.currentTime = clipData.start;
             } else if (!clipData) {
@@ -1746,52 +1721,73 @@
         // Status Check Interval
         setInterval(async () => {
             if (!currentJobId) return;
+            const isTranscriptionJob = currentJobId.startsWith('transcript_');
+
             try {
                 const statusResponse = await fetch(`/api/status/${currentJobId}`);
                 const statusData = await statusResponse.json();
-                if (statusData.progress && statusData.progress !== terminal.textContent.split('\n').slice(-2)[0].split('] ').slice(-1)[0]) { logToTerminal(statusData.progress); }
+
+                if (isTranscriptionJob) {
+                    transcriptProgressText.textContent = statusData.progress || 'Processing...';
+                    let progressPercentage = 5;
+                    switch(statusData.progress) {
+                        case 'Downloading audio...': progressPercentage = 25; break;
+                        case 'Transcribing... (this may take a while)': progressPercentage = 60; break;
+                        case 'Formatting transcript...': progressPercentage = 95; break;
+                    }
+                    transcriptProgressBar.style.width = `${progressPercentage}%`;
+                } else { 
+                     if (statusData.progress && statusData.progress !== terminal.textContent.split('\\n').slice(-2)[0].split('] ').slice(-1)[0]) {
+                        logToTerminal(statusData.progress);
+                    }
+                }
                 
                 if (statusData.status === 'completed' || statusData.status === 'failed' || statusData.status === 'cancelled') {
-                    
                     const jobId = currentJobId;
                     currentJobId = null; 
 
-                    await resetButtonAnimation(); 
-
-                    const finalCleanup = () => {
-                        if (statusData.status !== 'cancelled') {
-                            clipsToExport = [];
-                            renderSelectedClipsList();
-                        }
-                    };
-                    
-                    if (statusData.result) logToTerminal(`[${statusData.status.toUpperCase()}] ${statusData.result}`);
-                    if (statusData.error) logToTerminal(`[${statusData.status.toUpperCase()}] ERROR: ${statusData.error}`);
-                    
-                    if (statusData.status === 'completed' && statusData.completed_clips && statusData.completed_clips.length > 0) {
-                        const newClips = statusData.completed_clips.map(c => ({...c, jobId: jobId}));
-                        completedClips.push(...newClips);
-                        renderCompletedClips();
-
-                        if (celebrationAnimation) {
-                            celebrationContainer.style.display = 'flex';
-                            celebrationAnimation.goToAndPlay(0, true);
-                            const onComplete = () => {
-                                celebrationContainer.style.display = 'none';
-                                celebrationAnimation.removeEventListener('complete', onComplete);
-                                finalCleanup();
-                            };
-                            celebrationAnimation.addEventListener('complete', onComplete);
+                    if (isTranscriptionJob) {
+                        transcriptProgressBar.style.width = '100%';
+                        if (statusData.status === 'completed') {
+                            transcriptProgressText.textContent = 'Success!';
+                            logToTerminal(`Transcript generated. Loading file: ${statusData.filePath}`);
+                            await loadFileData(statusData.filePath, 'transcript');
                         } else {
-                           finalCleanup();
+                            transcriptProgressText.textContent = `Failed: ${statusData.error || 'Unknown error'}`;
+                            logToTerminal(`Transcription job ${jobId} failed: ${statusData.error}`);
                         }
+                        setTimeout(() => {
+                            transcriptProgressContainer.classList.add('hidden');
+                            generateTranscriptBtn.disabled = false;
+                            generateTranscriptBtn.textContent = 'Generate Transcript';
+                            updateTranscriptButtonStates();
+                        }, 2500);
+
                     } else {
-                        finalCleanup();
+                        await resetButtonAnimation(); 
+                        const finalCleanup = () => { if (statusData.status !== 'cancelled') { clipsToExport = []; renderSelectedClipsList(); } };
+                        if (statusData.result) logToTerminal(`[${statusData.status.toUpperCase()}] ${statusData.result}`);
+                        if (statusData.error) logToTerminal(`[${statusData.status.toUpperCase()}] ERROR: ${statusData.error}`);
+                        if (statusData.status === 'completed' && statusData.completed_clips && statusData.completed_clips.length > 0) {
+                            const newClips = statusData.completed_clips.map(c => ({...c, jobId: jobId}));
+                            completedClips.push(...newClips);
+                            renderCompletedClips();
+                            if (celebrationAnimation) {
+                                celebrationContainer.style.display = 'flex';
+                                celebrationAnimation.goToAndPlay(0, true);
+                                const onComplete = () => { celebrationContainer.style.display = 'none'; celebrationAnimation.removeEventListener('complete', onComplete); finalCleanup(); };
+                                celebrationAnimation.addEventListener('complete', onComplete);
+                            } else { finalCleanup(); }
+                        } else { finalCleanup(); }
                     }
                 }
             } catch (error) {
-                logToTerminal(`Error checking status: ${error.message}`);
-                await resetButtonAnimation();
+                logToTerminal(`Error checking job status: ${error.message}`);
+                if (isTranscriptionJob) {
+                    transcriptProgressContainer.classList.add('hidden');
+                    generateTranscriptBtn.disabled = false;
+                    generateTranscriptBtn.textContent = 'Generate Transcript';
+                } else { await resetButtonAnimation(); }
                 currentJobId = null;
             }
         }, 2000);
@@ -2027,3 +2023,4 @@
     </script>
 </body>
 </html>
+

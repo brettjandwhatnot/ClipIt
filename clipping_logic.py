@@ -55,7 +55,20 @@ def run_single_ffmpeg_clip(clip_request, url, headers, output_folder, job_id, jo
         header_str = "".join([f"{key}: {value}\r\n" for key, value in headers.items()])
         command.extend(['-headers', header_str])
     
-    command.extend(['-protocol_whitelist', 'file,http,https,tcp,tls,crypto', '-ss', str(start_sec), '-i', url, '-t', str(duration), '-c', 'copy', '-movflags', '+faststart', output_filename])
+    # Updated command to re-encode for vertical 1080x1920 format
+    command.extend([
+        '-protocol_whitelist', 'file,http,https,tcp,tls,crypto', 
+        '-ss', str(start_sec), 
+        '-i', url, 
+        '-t', str(duration),
+        '-vf', 'scale=1080:-1,crop=1080:1920',  # Scale to 1080 width, then crop to 1920 height
+        '-c:v', 'libx264',                     # Re-encode with a standard codec
+        '-preset', 'veryfast',                 # Optimize for speed
+        '-crf', '23',                          # Good balance of quality and file size
+        '-c:a', 'copy',                        # Copy audio without re-encoding
+        '-movflags', '+faststart', 
+        output_filename
+    ])
     
     thumb_command = [ffmpeg_path, '-y']
     if headers:
@@ -67,7 +80,6 @@ def run_single_ffmpeg_clip(clip_request, url, headers, output_folder, job_id, jo
         process = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, universal_newlines=True, encoding='utf-8', errors='ignore')
         jobs[job_id]['process'] = process
 
-        # This loop now only reads progress and will be interrupted by process.kill()
         for line in process.stdout:
             if 'time=' in line:
                 match = re.search(r'time=(\d{2}):(\d{2}):(\d{2})\.(\d{2})', line)
@@ -80,9 +92,7 @@ def run_single_ffmpeg_clip(clip_request, url, headers, output_folder, job_id, jo
 
         final_filename_for_log = os.path.basename(output_filename)
         
-        # Check status after the process has finished or been killed
         if jobs[job_id].get('status') == 'cancelling':
-            # Clean up the partial file
             if os.path.exists(output_filename):
                 try:
                     os.remove(output_filename)
@@ -101,7 +111,6 @@ def run_single_ffmpeg_clip(clip_request, url, headers, output_folder, job_id, jo
         return (True, f"SUCCESS: {final_filename_for_log}", output_filename, thumbnail_filename)
     except Exception as e:
         final_filename_for_log = os.path.basename(output_filename)
-        # Check if the job was cancelled, which can cause the exception
         if jobs[job_id].get('status') == 'cancelling':
             return(False, f"CANCELLED: {final_filename_for_log}", None, None)
         return (False, f"CRITICAL FAIL: {final_filename_for_log}. Error: {e}", None, None)
@@ -154,6 +163,7 @@ def run_clipping_process(job_id, params, jobs):
         source_url = params['resolved_url']
         headers = params['resolved_headers']
         output_folder = params.get('output_folder')
+        
         if not output_folder or not os.path.isdir(output_folder):
             raise ValueError("A valid output folder must be selected.")
         
@@ -179,7 +189,7 @@ def run_clipping_process(job_id, params, jobs):
                 completed_clip_paths.append({
                     'video': clip_path, 
                     'thumbnail': thumb_path,
-                    'start_time_sec': request['start']  # Add the start time to the completed data
+                    'start_time_sec': request['start']
                 })
             
             print(f"Job {job_id}: {result_message}")
@@ -195,7 +205,6 @@ def run_clipping_process(job_id, params, jobs):
         jobs[job_id]['error'] = error_message
         print(f"Job {job_id} FAILED: {error_message}")
     finally:
-        # This cleanup now runs once at the very end of the job.
         if 'process' in jobs[job_id]:
             del jobs[job_id]['process']
         logging.info(f"Job {job_id} finished with status: {jobs[job_id].get('status')}")

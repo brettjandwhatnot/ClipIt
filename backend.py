@@ -18,6 +18,8 @@ from flask import Flask, request, jsonify, Response, send_from_directory
 from urllib.parse import urljoin, quote, unquote
 import yt_dlp
 from datetime import timedelta
+import torch
+import whisper
 
 from clipping_logic import run_clipping_process
 
@@ -30,6 +32,7 @@ app = Flask(__name__)
 UI_FOLDER = os.path.dirname(os.path.abspath(__file__))
 jobs = {}
 chat_histories = {} 
+whisper_model = None
 
 # --- API CLIENT INITIALIZATION ---
 # Securely load API keys from the .env file
@@ -44,19 +47,39 @@ if OPENAI_API_KEY:
     except Exception as e:
         logging.error(f"Failed to initialize OpenAI client: {e}")
 else:
-    logging.warning("OPENAI_API_KEY environment variable not set. OpenAI features will be disabled.")
+    logging.warning("OPENAI_API_KEY environment variable not set. OpenAI features like frame analysis will be disabled.")
 
 gemini_model = None
 if GEMINI_API_KEY:
     try:
         genai.configure(api_key=GEMINI_API_KEY)
-        # FIXED: Correct model name is essential for the API call to work.
         gemini_model = genai.GenerativeModel('gemini-2.5-flash')
         logging.info("Gemini client configured successfully.")
     except Exception as e:
         logging.error(f"Failed to configure Gemini client: {e}")
 else:
     logging.warning("GEMINI_API_KEY environment variable not set. Gemini features will be disabled.")
+
+# --- WHISPER MODEL LOADING ---
+def load_whisper_model():
+    """Loads the Whisper model into a global variable, detecting GPU if available."""
+    global whisper_model
+    if whisper_model is None:
+        try:
+            logging.info("Loading local Whisper transcription model...")
+            device = "cuda" if torch.cuda.is_available() else "cpu"
+            logging.info(f"Whisper will use '{device}' device for transcription.")
+            # Using the 'base' model as it's a good balance of speed and accuracy.
+            # Other options include: 'tiny', 'small', 'medium', 'large'
+            whisper_model = whisper.load_model("base", device=device)
+            logging.info("Whisper model 'base' loaded successfully.")
+        except Exception as e:
+            logging.error(f"FATAL: Failed to load Whisper model: {e}")
+            whisper_model = "error" # Set to error state
+
+# Load the model at startup in a separate thread to not block the UI
+threading.Thread(target=load_whisper_model).start()
+
 
 # --- CONSTANTS & GLOBALS ---
 default_ai_prompt = """
@@ -104,7 +127,6 @@ def parse_livestream_time(time_str):
     total_seconds = parts['hr'] * 3600 + parts['min'] * 60 + parts['s']
     return -total_seconds if is_negative else total_seconds
 
-# --- REINTRODUCED FROM backend.py ---
 def format_time_for_srt(seconds):
     """Converts seconds to HH:MM:SS,ms format."""
     delta = timedelta(seconds=seconds)
@@ -112,7 +134,6 @@ def format_time_for_srt(seconds):
     minutes, seconds = divmod(remainder, 60)
     milliseconds = delta.microseconds // 1000
     return f"{hours:02}:{minutes:02}:{seconds:02},{milliseconds:03}"
-# --- END REINTRODUCED SECTION ---
 
 # --- WEBVIEW API CLASS ---
 class Api:
@@ -391,28 +412,25 @@ def get_csv_data():
         logging.error(f"Error reading CSV {path}: {e}")
         return jsonify({'error': str(e)}), 500
 
-# --- REINTRODUCED FROM backend.py ---
-@app.route('/api/generate_transcript', methods=['POST'])
-def generate_transcript():
-    if not openai_client:
-        return jsonify({'error': "OpenAI client not initialized. Please check API key."}), 500
-    
-    data = request.json
-    source_input = data.get('source_url')
-    if not source_input:
-        return jsonify({'error': 'Source URL is required.'}), 400
+# --- TRANSCRIPTION LOGIC ---
 
-    temp_dir = os.path.join(UI_FOLDER, 'temp')
-    os.makedirs(temp_dir, exist_ok=True)
-    
-    temp_audio_path = os.path.join(temp_dir, f"{uuid.uuid4()}.m4a")
-    transcript_filename = f"generated_transcript_{uuid.uuid4()}.csv"
-    transcript_path = os.path.join(temp_dir, transcript_filename)
-
+def run_transcription_process(job_id, params, jobs_dict):
+    """
+    Runs the full transcription process using the local Whisper model.
+    Communicates progress back via the shared jobs dictionary.
+    """
+    temp_audio_path = ""
     try:
-        url, headers = _get_url_and_headers(source_input)
+        jobs_dict[job_id]['status'] = 'running'
         
-        logging.info("Downloading audio for transcription...")
+        # 1. Download Audio
+        jobs_dict[job_id]['progress'] = 'Downloading audio...'
+        source_input = params.get('source_url')
+        temp_dir = os.path.join(UI_FOLDER, 'temp')
+        os.makedirs(temp_dir, exist_ok=True)
+        temp_audio_path = os.path.join(temp_dir, f"{job_id}.m4a")
+
+        url, headers = _get_url_and_headers(source_input)
         ydl_opts = {
             'format': 'm4a/bestaudio/best',
             'outtmpl': temp_audio_path,
@@ -421,128 +439,72 @@ def generate_transcript():
         }
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             ydl.download([url])
-        logging.info(f"Audio downloaded to {temp_audio_path}")
-
+        
         if not os.path.exists(temp_audio_path):
-            raise FileNotFoundError("Failed to download audio file.")
+            raise FileNotFoundError("Failed to download audio file for transcription.")
 
-        logging.info("Transcribing audio with Whisper API...")
-        with open(temp_audio_path, "rb") as audio_file:
-            transcription_response = openai_client.audio.transcriptions.create(
-                model="whisper-1", 
-                file=audio_file,
-                response_format="verbose_json"
-            )
+        # 2. Transcribe with Local Whisper
+        jobs_dict[job_id]['progress'] = 'Transcribing... (this may take a while)'
+        if whisper_model is None or whisper_model == "error":
+            raise Exception("Whisper model is not loaded. Check logs for errors at startup.")
         
-        logging.info("Transcription complete. Formatting and saving to CSV.")
+        transcription_response = whisper_model.transcribe(temp_audio_path, verbose=False)
         
+        # 3. Format and Save Transcript
+        jobs_dict[job_id]['progress'] = 'Formatting transcript...'
+        transcript_filename = f"generated_transcript_{job_id}.csv"
+        transcript_path = os.path.join(temp_dir, transcript_filename)
+
         with open(transcript_path, 'w', newline='', encoding='utf-8') as csvfile:
             writer = csv.writer(csvfile)
             writer.writerow(['WEBVTT']) 
-            for segment in transcription_response.segments:
+            for segment in transcription_response['segments']:
                 start = format_time_for_srt(segment['start'])
                 end = format_time_for_srt(segment['end'])
                 text = segment['text'].strip()
                 formatted_line = f'{start} --> {end} {text}'
                 writer.writerow([formatted_line])
         
-        logging.info(f"Transcript saved to {transcript_path}")
-        return jsonify({'filePath': transcript_path})
+        # 4. Mark Job as Complete
+        jobs_dict[job_id]['status'] = 'completed'
+        jobs_dict[job_id]['result'] = 'Transcription complete.'
+        jobs_dict[job_id]['filePath'] = transcript_path
 
     except Exception as e:
-        logging.error(f"Transcript generation failed: {e}")
-        return jsonify({'error': str(e)}), 500
+        error_message = f"Transcription failed: {e}"
+        logging.error(f"Job {job_id} FAILED: {error_message}", exc_info=True)
+        jobs_dict[job_id]['status'] = 'failed'
+        jobs_dict[job_id]['error'] = str(e)
     finally:
+        # Clean up the downloaded audio file
         if os.path.exists(temp_audio_path):
-            os.remove(temp_audio_path)
-
-@app.route('/api/generate_partial_transcript', methods=['POST'])
-def generate_partial_transcript():
-    if not openai_client:
-        return jsonify({'error': "OpenAI client not initialized. Please check API key."}), 500
-
-    data = request.json
-    source_input = data.get('source_url')
-    sales_path = data.get('sales_csv_path')
-
-    if not source_input or not sales_path:
-        return jsonify({'error': 'Source URL and Sales CSV path are required.'}), 400
-
-    temp_dir = os.path.join(UI_FOLDER, 'temp')
-    os.makedirs(temp_dir, exist_ok=True)
-    transcript_filename = f"generated_partial_transcript_{uuid.uuid4()}.csv"
-    transcript_path = os.path.join(temp_dir, transcript_filename)
-
-    all_transcript_lines = []
-
-    try:
-        url, headers = _get_url_and_headers(source_input)
-        sales_data = _read_csv_data(sales_path, 'sales')
-        sold_items = [item for item in sales_data if item.get('status', '').upper() == 'SOLD']
-
-        logging.info(f"Found {len(sold_items)} sold items. Generating transcript segments...")
-
-        for i, item in enumerate(sold_items):
-            item_time_sec = to_seconds(item.get('time'))
-            if item_time_sec is None:
-                continue
-
-            start_sec = max(0, item_time_sec - 45)
-            duration = 60
-            temp_audio_path = os.path.join(temp_dir, f"segment_{uuid.uuid4()}.m4a")
-            
-            logging.info(f"Processing segment {i+1}/{len(sold_items)} for item '{item.get('product_name')}' at {format_time_for_srt(start_sec)}")
-
-            ffmpeg_command = [
-                'ffmpeg', '-y', '-ss', str(start_sec), '-t', str(duration),
-                '-i', url, '-vn', '-c:a', 'aac', '-b:a', '128k', temp_audio_path
-            ]
-            
-            header_str = "".join([f"{key}: {value}\r\n" for key, value in headers.items()])
-            ffmpeg_command.insert(1, '-headers')
-            ffmpeg_command.insert(2, header_str)
-
-            subprocess.run(ffmpeg_command, check=True, capture_output=True, text=True)
-
-            if not os.path.exists(temp_audio_path):
-                 logging.warning(f"Failed to extract audio for item at {item.get('time')}")
-                 continue
-
-            with open(temp_audio_path, "rb") as audio_file:
-                transcription_response = openai_client.audio.transcriptions.create(
-                    model="whisper-1",
-                    file=audio_file,
-                    response_format="verbose_json"
-                )
-            
-            for segment in transcription_response.segments:
-                absolute_start = start_sec + segment['start']
-                absolute_end = start_sec + segment['end']
-                start_formatted = format_time_for_srt(absolute_start)
-                end_formatted = format_time_for_srt(absolute_end)
-                text = segment['text'].strip()
-                all_transcript_lines.append(f'{start_formatted} --> {end_formatted} {text}')
-
-            if os.path.exists(temp_audio_path):
+            try:
                 os.remove(temp_audio_path)
-        
-        all_transcript_lines.sort()
+            except OSError as e:
+                logging.error(f"Error removing temp audio file {temp_audio_path}: {e}")
 
-        with open(transcript_path, 'w', newline='', encoding='utf-8') as csvfile:
-            writer = csv.writer(csvfile)
-            writer.writerow(['WEBVTT'])
-            for line in all_transcript_lines:
-                writer.writerow([line])
+@app.route('/api/generate_transcript', methods=['POST'])
+def generate_transcript_job():
+    """Starts a transcription job and returns a job ID."""
+    global whisper_model
+    if whisper_model == "error":
+        return jsonify({'error': "Whisper model failed to load on startup. Please check the application logs for errors (e.g., missing PyTorch or CUDA setup) and restart the application."}), 500
+    
+    if whisper_model is None:
+        return jsonify({'error': "Whisper model is still loading, please try again in a moment."}), 503
 
-        logging.info(f"Partial transcript saved to {transcript_path}")
-        return jsonify({'filePath': transcript_path})
+    params = request.json
+    if not params.get('source_url'):
+        return jsonify({'error': 'Source URL is required.'}), 400
 
-    except Exception as e:
-        logging.error(f"Partial transcript generation failed: {e}")
-        if isinstance(e, subprocess.CalledProcessError):
-             logging.error(f"FFMPEG Error: {e.stderr}")
-             return jsonify({'error': f"FFMPEG Error: {e.stderr}"}), 500
-        return jsonify({'error': str(e)}), 500
+    job_id = f"transcript_{uuid.uuid4()}"
+    jobs[job_id] = {'status': 'pending', 'progress': 'Job queued'}
+    
+    thread = threading.Thread(target=run_transcription_process, args=(job_id, params, jobs))
+    thread.daemon = True
+    thread.start()
+    
+    return jsonify({'message': 'Transcription job started.', 'job_id': job_id}), 202
 
 
 @app.route('/api/analyze_frame', methods=['POST'])
@@ -643,7 +605,6 @@ def ai_chat():
     except Exception as e:
         logging.error(f"OpenAI API error during chat: {e}")
         return jsonify({'error': str(e)}), 500
-# --- END REINTRODUCED SECTION ---
 
 
 def _find_moments_logic(final_user_prompt, sales_path, transcript_path, chat_path, num_clips_to_find):
@@ -732,7 +693,6 @@ def ai_find_moments():
         logging.error(f"AI Find Moments Error: {e}", exc_info=True)
         return jsonify({'error': str(e)}), 500
 
-# --- REINTRODUCED FROM backend.py ---
 @app.route('/api/find_and_clip', methods=['POST'])
 def find_and_clip():
     global default_ai_prompt
@@ -785,4 +745,3 @@ def find_and_clip():
     except Exception as e:
         logging.error(f"Find and Clip Error: {e}")
         return jsonify({'error': str(e)}), 500
-# --- END REINTRODUCED SECTION ---
