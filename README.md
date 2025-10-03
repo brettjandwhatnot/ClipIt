@@ -1,9 +1,4 @@
-  ██████╗ ██╗     ██╗██████╗ ██╗████████╗
- ██╔════ ╗██║     ██║██╔══██╗██║╚══██╔══╝
- ██║     ║██║     ██║██████╔╝██║   ██║   
- ██║     ║██║     ██║██╔═══╝ ██║   ██║   
- ╚██████╔╝███████╗██║██║     ██║   ██║   
-  ╚═════╝ ╚══════╝╚═╝╚═╝     ╚═╝   ╚═╝    
+Clipit 2
 
 About: A clipping tool designed to make finding and clipping content easier than ever.
 Gemini — For searching between product information, show transcripts, and chat logs.
